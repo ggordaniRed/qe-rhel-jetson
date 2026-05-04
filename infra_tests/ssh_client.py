@@ -156,7 +156,8 @@ class SSHConnection(Connection):
         ]
         # Import here to avoid circular import (conftest imports ssh_client)
         from tests_suites import conftest as _conftest
-        # if bootc is available, add --transient to mutating dnf commands
+        # if bootc is available, add --transient
+        # and --nogpgcheck because the image does not have the GPG key for internal Red Hat repositories
         if _conftest.BOOTC_AVAILABLE:
             cmd_parts = command.split()
             if cmd_parts and cmd_parts[0] == "dnf":

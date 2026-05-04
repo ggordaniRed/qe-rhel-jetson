@@ -52,9 +52,24 @@ JOB_XML_TEMPLATE = '''<job retention_tag="scratch">
       <packages/>
       <ks_appends>
         <ks_append><![CDATA[
-clearpart --all --initlabel --disklabel=gpt
+%pre --interpreter=/bin/bash
+# Pick the largest non-eMMC disk (NVMe on Jetsons) so ESP and root
+# land on the same device — bootc requires this for to-existing-root.
+DISK=$(lsblk -dnbo NAME,SIZE,TYPE 2>/dev/null \
+       | awk '$3=="disk" && $1 !~ /^mmcblk/ {{print $1, $2}}' \
+       | sort -k2 -rn | head -1 | awk '{{print $1}}')
+[ -z "$DISK" ] && DISK=$(lsblk -dnbo NAME,SIZE,TYPE 2>/dev/null \
+       | awk '$3=="disk" {{print $1, $2}}' \
+       | sort -k2 -rn | head -1 | awk '{{print $1}}')
+cat > /tmp/partitions.ks <<EOF
+ignoredisk --only-use=$DISK
+clearpart --all --initlabel --disklabel=gpt --drives=$DISK
 reqpart --add-boot
 part / --grow --fstype xfs
+EOF
+%end
+
+%include /tmp/partitions.ks
 ]]></ks_append>
       </ks_appends>
       <repos/>
