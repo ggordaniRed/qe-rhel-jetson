@@ -180,6 +180,101 @@ pytest tests_suites/
 
 ---
 
+## Optional: Build a GUI-Enabled Disk Image
+
+By default, the bootc not including GNOME desktop packages. To build a disk image with GNOME desktop (GDM + gnome-shell) for display testing or KVM usage, use `Containerfile-gui`:
+
+### 1. Build the GUI container image
+
+```bash
+# Default (RHEL 9.7 with default base image):
+podman build --platform linux/arm64 -t localhost/jetson-gui:latest -f Containerfile-gui .
+
+# Custom base image and/or RHEL version:
+podman build --platform linux/arm64 \
+  --build-arg BASE_IMAGE=<your-base-image> \
+  --build-arg RHEL_VERSION=9.8 \
+  -t localhost/jetson-gui:latest -f Containerfile-gui .
+```
+
+| Build arg | Default | Description |
+|-----------|---------|-------------|
+| `BASE_IMAGE` | `quay.io/.../rhel97-5140-611421-stage:...` | Base bootc image to layer GUI on top of |
+| `RHEL_VERSION` | `9.7` | RHEL version for repo URLs and EPEL |
+
+> **Note:** `Containerfile-gui` layers GDM, gnome-shell, x11vnc, and xorg-x11-drivers on top of the base image.
+
+### 2. Build the raw disk image
+
+```bash
+mkdir -p ./output && sudo chmod 777 ./output
+
+podman run --rm --privileged \
+  --security-opt label=type:unconfined_t \
+  -v /var/lib/containers/storage:/var/lib/containers/storage \
+  -v ./config.toml:/config.toml:ro \
+  -v ./output:/output \
+  registry.redhat.io/rhel9/bootc-image-builder:latest build \
+  --output /output --type raw --target-arch arm64 \
+  localhost/jetson-gui:latest
+```
+
+### 3. Compress and flash
+
+```bash
+xz ./output/image/disk.raw
+export DISK_IMAGE_PATH="$(pwd)/output/image/disk.raw.xz"
+```
+ 
+Then flash and run tests as usual (see Step 2 and Step 3 above).
+
+### Display Output Notes
+
+- The nvidia driver on AGX Orin exposes a single DRM connector: `card1-DP-1` (DisplayPort)
+- GDM renders to this connector at 1920x1080
+- GDM uses `-displayfd` so verify display number with:
+  ```bash
+  cat /proc/$(pgrep -o gnome-shell)/environ | tr '\0' '\n' | grep DISPLAY
+  ```
+
+### VNC Remote Desktop Access
+
+If the KVM shows a black screen after boot, use VNC to access the GNOME desktop remotely.
+
+**On the device** (transient install, lost on reboot):
+
+```bash
+# 1. Install EPEL and x11vnc (should be hundled by the jumpstarter/Containerfile-gui)
+dnf install --transient -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+dnf install --transient -y x11vnc
+
+# 2. Find the actual display number and Xauthority path
+export XDISPLAY=$(cat /proc/$(pgrep -o gnome-shell)/environ | tr '\0' '\n' | grep DISPLAY | cut -d= -f2)
+export XAUTH=$(ps aux | grep Xorg | grep -oP '(?<=-auth )\S+')
+
+# 3. Start x11vnc
+x11vnc -display $XDISPLAY -auth $XAUTH -forever -noshm -passwd $JETSON_PASSWORD -rfbport 5900 &
+```
+-> **Note:** example : x11vnc -display $XDISPLAY -auth $XAUTH -forever -noshm -passwd 123 -rfbport 5900 &
+
+**From your local machine** (SSH tunnel + VNC client):
+
+```bash
+# Terminal 1: SSH tunnel
+ssh -L 5900:localhost:5900 root@<device-hostname>
+
+# Terminal 2: Connect VNC
+# Mac:
+open vnc://localhost:5900
+# Linux:
+vncviewer localhost:5900
+```
+
+> **Note:** The Xauthority path is `/run/user/0/gdm/Xauthority` (uid 0 = root).
+> Direct VNC without SSH tunnel may fail if port 5900 is firewalled.
+
+---
+
 ## What wrapper.py Does
 
 1. Connects storage to DUT and power-cycles the device

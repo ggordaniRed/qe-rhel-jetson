@@ -1,0 +1,26 @@
+ARG BASE_IMAGE=quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel97-5140-611421-stage:6.2.2-5.14.0_611.42.1-032626145744
+ARG RHEL_VERSION=9.7
+
+FROM ${BASE_IMAGE}
+
+ARG RHEL_VERSION
+
+RUN dnf config-manager --add-repo https://download.devel.redhat.com/rhel-${RHEL_VERSION%%.*}/nightly/RHEL-${RHEL_VERSION%%.*}/latest-RHEL-${RHEL_VERSION}.0/compose/BaseOS/aarch64/os/ && \
+    dnf config-manager --add-repo https://download.devel.redhat.com/rhel-${RHEL_VERSION%%.*}/nightly/RHEL-${RHEL_VERSION%%.*}/latest-RHEL-${RHEL_VERSION}.0/compose/AppStream/aarch64/os/ && \
+    for repo in /etc/yum.repos.d/download.devel.redhat.com_*.repo; do \
+      echo -e "sslverify=0\ngpgcheck=0" >> "$repo"; \
+    done && \
+    dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RHEL_VERSION%%.*}.noarch.rpm
+
+RUN dnf install -y --nogpgcheck \
+    gdm \
+    gnome-shell \
+    gnome-control-center \
+    nautilus \
+    xorg-x11-drivers \
+    x11vnc \
+    && dnf clean all
+
+RUN usermod -aG video gdm
+
+RUN systemctl set-default graphical.target
