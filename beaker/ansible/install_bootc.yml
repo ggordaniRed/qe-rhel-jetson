@@ -273,7 +273,7 @@
       ansible.builtin.command:
         cmd: >
           dnf config-manager --add-repo
-          http://download.eng.rdu.redhat.com/released/rhel-{{ rhel_major_version }}/RHEL-{{ rhel_major_version }}/{{ rhel_version }}.0/AppStream/aarch64/os/
+          https://download.devel.redhat.com/rhel-{{ rhel_major_version }}/nightly/RHEL-{{ rhel_major_version }}/latest-RHEL-{{ rhel_version }}.0/compose/AppStream/aarch64/os/
       register: appstream_repo_result
       changed_when: appstream_repo_result.rc == 0
       failed_when: false
@@ -283,9 +283,21 @@
       ansible.builtin.command:
         cmd: >
           dnf config-manager --add-repo
-          http://download.eng.rdu.redhat.com/released/rhel-{{ rhel_major_version }}/RHEL-{{ rhel_major_version }}/{{ rhel_version }}.0/BaseOS/aarch64/os/
+          https://download.devel.redhat.com/rhel-{{ rhel_major_version }}/nightly/RHEL-{{ rhel_major_version }}/latest-RHEL-{{ rhel_version }}.0/compose/BaseOS/aarch64/os/
       register: baseos_repo_result
       changed_when: baseos_repo_result.rc == 0
+      failed_when: false
+      tags: [packages]
+
+    # download.devel.redhat.com uses a Red Hat internal self-signed certificate
+    # chain. Without sslverify=0, dnf fails with "SSL peer certificate" errors
+    - name: Disable SSL verification for nightly repos (self-signed cert chain)
+      ansible.builtin.shell: |
+        for repo in /etc/yum.repos.d/download.devel.redhat.com_*.repo; do
+          [ -f "$repo" ] && sed -i 's/^\(sslverify\s*=\).*/\1=0/' "$repo"
+          grep -q '^sslverify' "$repo" 2>/dev/null || echo 'sslverify=0' >> "$repo"
+        done
+      changed_when: true
       failed_when: false
       tags: [packages]
 

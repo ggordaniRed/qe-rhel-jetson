@@ -97,38 +97,52 @@ def _load_hardware_specs() -> Dict[str, Any]:
 
 def _install_beaker_repo(ssh, rhel_version: Optional[str]):
     """
-    Install Beaker repository on the Jetson.
-    RHEL version is required to install the correct Beaker repository.
-    Retries DNF operations up to 3 times to handle transient mirror failures.
+    Ensure nightly repos (AppStream/BaseOS) and EPEL exist on the Jetson.
+    On Beaker deployments the Ansible playbook handles this; 
+    on Jumpstarter deployments there is no playbook, so this function installs them as fallback.
+    
+    download.devel.redhat.com uses a Red Hat internal self-signed cert chain -
+    bootc images don't include the internal CA, so sslverify=0 is required.
     """
-    logger.info("[Setup] Checking Beaker repositories exist on the Jetson...")
+    logger.info("[Setup] Verifying repositories exist on the Jetson...")
     if rhel_version is None:
         raise ValueError("RHEL version not found, The environment is not a RHEL machine")
 
     main_rhel_version = str(rhel_version).split(".")[0]
-    # declare commands to install Beaker repositories and EPEL release
+    nightly_base = f"https://download.devel.redhat.com/rhel-{main_rhel_version}/nightly/RHEL-{main_rhel_version}/latest-RHEL-{rhel_version}/compose"
+    cmd_appstream = f"dnf config-manager --add-repo {nightly_base}/AppStream/aarch64/os/"
+    cmd_baseos = f"dnf config-manager --add-repo {nightly_base}/BaseOS/aarch64/os/"
+    # sslverify=0: download.devel.redhat.com uses Red Hat internal CA not in bootc trust store
+    cmd_sslverify = (
+        'for f in /etc/yum.repos.d/download.devel.redhat.com_*.repo; do '
+        '[ -f "$f" ] && grep -q "^sslverify" "$f" '
+        '&& sed -i "s/^sslverify.*/sslverify=0/" "$f" '
+        '|| echo "sslverify=0" >> "$f"; done'
+    )
+    # --nogpgcheck: bootc images don't ship pre-imported GPG keys
     cmd_epel = f"dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-{main_rhel_version}.noarch.rpm -y"
-    cmd_appstream = f"dnf config-manager --add-repo http://download.eng.rdu.redhat.com/released/rhel-{main_rhel_version}/RHEL-{main_rhel_version}/{rhel_version}.0/AppStream/aarch64/os/"
-    cmd_baseos = f"dnf config-manager --add-repo http://download.eng.rdu.redhat.com/released/rhel-{main_rhel_version}/RHEL-{main_rhel_version}/{rhel_version}.0/BaseOS/aarch64/os/"
-    
-    result = ssh.sudo("dnf repolist | grep beaker- | wc -l")
-    if result.exit_status == 0 and int(result.stdout.strip()) >= 12:
-        logger.info("[Setup] installing EPEL release for RHEL %s", rhel_version)
+
+    result = ssh.sudo("dnf repolist")
+    repos = result.stdout.lower()
+
+    if "appstream" not in repos or "baseos" not in repos:
+        logger.info("[Setup] Nightly repos missing, installing for RHEL %s", rhel_version)
+        for attempt in range(1, 4):
+            try:
+                ssh.sudo(cmd_appstream)
+                ssh.sudo(cmd_baseos)
+                ssh.sudo(cmd_sslverify)
+                break
+            except Exception as e:
+                if attempt < 3:
+                    logger.warning("Repo setup failed (attempt %s/3): %s, retrying...", attempt, e)
+                    time.sleep(5)
+                else:
+                    raise
+
+    if "epel" not in repos:
+        logger.info("[Setup] EPEL missing, installing for RHEL %s", rhel_version)
         ssh.sudo(cmd_epel)
-    else:
-      logger.info("[Setup] installing Beaker repositories and EPEL release for RHEL %s", rhel_version)
-      for attempt in range(1, 4):
-          try:
-              ssh.sudo(cmd_appstream)
-              ssh.sudo(cmd_baseos)
-              ssh.sudo(cmd_epel)
-              break
-          except Exception as e:
-              if attempt < 3:
-                  logger.warning("DNF operation failed (attempt %s/3): %s, retrying...", attempt, e)
-                  time.sleep(5)
-              else:
-                  raise
 
 def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[Dict[str, str]]:
     """Return target version dict for the given Jetpack version, or None."""
