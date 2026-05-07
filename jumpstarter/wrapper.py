@@ -255,21 +255,18 @@ with env() as client:
         for boot_attempt in range(MAX_WRONG_OS_RETRIES + 1):
             wrong_os = False
 
-            # Power on first so the storage controller is active, connect storage
-            # to DUT, then power off cleanly before the real boot.
-            client.power.on()
-            logger.info("[wrapper] DUT powered on (pre-storage)")
-            client.storage.dut()
-            logger.info("[wrapper] Storage connected to DUT")
             client.power.off()
-            logger.info("[wrapper] DUT powered off (storage attached)")
+            logger.info("[wrapper] DUT powered off")
 
             if force_nvme_boot:
                 logger.info("[wrapper] Skipping storage.dut() — forcing NVMe boot to fix EFI entries")
                 force_nvme_boot = False
+            else:
+                client.storage.dut()
+                logger.info("[wrapper] Storage connected to DUT")
 
             client.power.on()
-            logger.info("[wrapper] DUT powered on (booting)")
+            logger.info("[wrapper] DUT powered on")
 
             with client.serial.pexpect() as p:
                 p.logfile = sys.stdout.buffer
