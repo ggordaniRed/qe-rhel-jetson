@@ -2,5 +2,8 @@ ARG L4T_JETPACK_IMAGE=nvcr.io/nvidia/l4t-jetpack:r36.4.0
 FROM ${L4T_JETPACK_IMAGE}
 # TensorRT (trtexec, samples, models) is pre-installed in L4T container
 # COMPILE ONLY — build TensorRT samples for testing
+# Preserve NVIDIA's pre-built trtexec: recompilation overwrites it with a broken binary
 RUN apt-get update && apt-get install -y make g++
+RUN cp /usr/src/tensorrt/bin/trtexec /usr/src/tensorrt/bin/trtexec.prebuilt
 RUN make -C /usr/src/tensorrt/samples -j $(nproc) || true
+RUN mv /usr/src/tensorrt/bin/trtexec.prebuilt /usr/src/tensorrt/bin/trtexec
