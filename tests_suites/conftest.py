@@ -9,7 +9,9 @@ Test tiers:
 """
 import pytest
 import os
+import re
 import time
+from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Optional, Union, Dict, Any
@@ -398,6 +400,64 @@ def ssh():
         logger.error(f"\n[SSH Fixture] {error_msg}\n")
         raise
 
+# ---------------------------------------------------------------------------
+# Session File Logger — mirrors all terminal output to a timestamped file
+# ---------------------------------------------------------------------------
+
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+
+class _TeeWriter:
+    """Wraps a stream to duplicate writes to a file, stripping ANSI codes from the log."""
+
+    def __init__(self, original, log_file):
+        self._original = original
+        self._log_file = log_file
+
+    def write(self, data):
+        self._original.write(data)
+        try:
+            self._log_file.write(_ANSI_RE.sub('', data))
+        except (ValueError, OSError):
+            pass
+
+    def flush(self):
+        self._original.flush()
+        try:
+            self._log_file.flush()
+        except (ValueError, OSError):
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+class SessionFileLogger:
+
+    def __init__(self):
+        self._log_file = None
+        self._report_path = None
+
+    def pytest_configure(self, config):
+        host = os.getenv("JETSON_HOST", "unknown-host").split(".")[0]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_dir = Path(__file__).parent.parent / "test-results"
+        results_dir.mkdir(exist_ok=True)
+        self._report_path = results_dir / f"report_{host}_{timestamp}.txt"
+        self._log_file = open(self._report_path, "w", buffering=1)
+        self._orig_stdout = sys.stdout
+        self._orig_stderr = sys.stderr
+        sys.stdout = _TeeWriter(self._orig_stdout, self._log_file)
+        sys.stderr = _TeeWriter(self._orig_stderr, self._log_file)
+
+    def pytest_unconfigure(self, config):
+        sys.stdout = self._orig_stdout
+        sys.stderr = self._orig_stderr
+        if self._log_file and not self._log_file.closed:
+            self._log_file.close()
+        if self._report_path and self._report_path.exists():
+            print(f"\n📄 Session report saved to: {self._report_path}")
+
+def pytest_configure(config):
+    config.pluginmanager.register(SessionFileLogger(), "session_file_logger")
 
 # ---------------------------------------------------------------------------
 # Extra-tests support: @pytest.mark.extra tests are excluded by default.

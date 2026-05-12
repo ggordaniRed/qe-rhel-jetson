@@ -28,6 +28,9 @@ CLAUDE.md
 # Device logs (collected at test teardown)
 device_logs/
 
+# Test session reports
+test-results/
+
 # Jumpstarter resources
 config.toml
 output/
