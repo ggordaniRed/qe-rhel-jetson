@@ -255,6 +255,9 @@ with env() as client:
         for boot_attempt in range(MAX_WRONG_OS_RETRIES + 1):
             wrong_os = False
 
+            client.power.off()
+            logger.info("[wrapper] DUT powered off")
+
             if force_nvme_boot:
                 logger.info("[wrapper] Skipping storage.dut() — forcing NVMe boot to fix EFI entries")
                 force_nvme_boot = False
@@ -262,7 +265,7 @@ with env() as client:
                 client.storage.dut()
                 logger.info("[wrapper] Storage connected to DUT")
 
-            client.power.cycle()
+            client.power.on()
             logger.info("[wrapper] DUT powered on")
 
             with client.serial.pexpect() as p:
@@ -305,13 +308,18 @@ with env() as client:
 
                 else:
                     # Correct OS — proceed with SSH configuration
-                    p.sendline("")
-                    p.expect_exact("login:", timeout=30)
                     logger.info("[wrapper] Successfully showing login prompt via console")
 
                     if PASSWORD:
                         logger.info("[wrapper] Configuring SSH root password login via serial console...")
-                        time.sleep(2)
+                        time.sleep(5)
+                        # Flush any stale login prompts from buffer
+                        try:
+                            while True:
+                                p.read_nonblocking(size=4096, timeout=1)
+                        except Exception:
+                            pass
+                        # Send Enter to get a single clean login prompt
                         p.sendline("")
                         p.expect_exact("login:", timeout=30)
                         p.sendline(USERNAME)

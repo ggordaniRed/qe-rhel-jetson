@@ -355,6 +355,17 @@ def fetch_hardware_logs_session(hardware_info_session):
         fetch_hardware_logs(ssh)
     logger.info("[Teardown] Hardware logs fetched successfully")
 
+@pytest.fixture(scope="class", autouse=True)
+def drop_memory_cache(ssh):
+    """
+    Clear memory (RAM) cache of the Jetson before and after each test class. 
+    to ensure the shared memory is being freed 
+    (with these sharing memory between the system and GPU, going out of memory due to system cache is known to happen)
+    """
+    yield
+    ssh.sudo("sync; sync; sync")
+    ssh.sudo("echo 3 | sudo tee /proc/sys/vm/drop_caches")
+
 @pytest.fixture(scope="class")
 def ssh():
     """
