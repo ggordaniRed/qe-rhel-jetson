@@ -12,10 +12,9 @@ logger = logging.getLogger(__name__)
 def ensure_pd_ignore_unused(ssh):
     """Ensure pd_ignore_unused is in the kernel cmdline before display tests.
 
-    Only needed on RHEL 9.7 (Tech Preview) + multi-user.target when nvidia_drm
-    is manually loaded — without it, modprobe nvidia_drm causes a kernel hang.
+    Only needed on RHEL 9.7 (Tech Preview) + multi-user.target (the confirmed
+    default base image target) as a safety measure to prevent kernel hang.
     RHEL 9.8+ (GA) does not require this workaround.
-    (Source: Rupinder confirmed pd_ignore_unused is only applicable to RHEL 9.7 TP)
 
     - RHEL 9.8+ or graphical.target -> skip, just yield ssh
     - RHEL 9.7 + multi-user.target + already present -> proceed normally

@@ -4,42 +4,23 @@ Display tests for Jetson RPMs.
 Known Issues
 ============
 
-1. nvidia_drm Loading Behavior (NVIDIA-580 — RESOLVED)
-   Issue: nvidia_drm is loaded via load-nvidia-drm.service which requires
-          graphical.target. On multi-user.target the module is not auto-loaded.
-   Resolution: Henry and Rupinder agreed that nvidia_drm loading should be
-               inferred at runtime — load it if/when needed. It is NOT expected
-               to auto-load on multi-user.target. This is not a bug.
-   Henry: "the module loading should be inferred at runtime (e.g. load it
-           if/when we need it), could also be an optional drm package tied
-           to all the jetpack wayland and vulkan support packages"
-   Rupinder: "ok, at runtime then, load a module if needed. Modify the test
-              to first insert a module if not loaded already before running
-              the display test case."
-   Affected tests: test_display_by_drm
-   Test logic:
-     - graphical.target + nvidia_drm loaded     → expected, test DRM status
-     - graphical.target + nvidia_drm NOT loaded  → fail (service should load it)
-     - multi-user.target + nvidia_drm loaded     → test DRM status
-     - multi-user.target + nvidia_drm NOT loaded → load on demand, test DRM status
-   WARNING: Rupinder confirmed that loading nvidia_drm on multi-user.target with
-            RHEL 9.7 (TP) requires 'pd_ignore_unused' in kernel cmdline to avoid
-            kernel hang. RHEL 9.8+ (GA) does NOT need this workaround.
-            The ensure_pd_ignore_unused fixture gates on both RHEL version (9.7 only)
-            and systemd target (multi-user.target only).
-   TODO: Henry noted nvidia_drm may be needed even without wayland/graphical target
-         (e.g. for non-display workloads). Impact analysis needed — test workloads on
-         multi-user.target with nvidia_drm loaded to verify stability and whether the
-         module affects non-graphical workloads.
+1. Display and DRM Behavior (RESOLVED) [JETPACK-123, JETPACK-94, JETPACK-96]
+   Resolution: multi-user.target (runlevel 3) is the confirmed default for
+               the base bootc image. tegra_drm (kernel auto-loaded) handles
+               display on both targets. nvidia_drm is NOT required and should
+               NOT be loaded by any daemon or test.
+   Root cause: The original bug occurred only when switching to graphical.target
+               WITHOUT GDM installed while using nvidia_drm. Two valid configs:
+                 - multi-user.target (base image, no GDM) → display via tegra_drm (only tty console)
+                 - graphical.target + GDM installed (GUI variant) → display via tegra_drm + GDM (graphical session)
+   WARNING: RHEL 9.7 (TP) requires 'pd_ignore_unused' kernel arg on
+            multi-user.target to avoid kernel hang. RHEL 9.8+ (GA) does not
+            need this workaround. The ensure_pd_ignore_unused fixture handles
+            this automatically.
 
 2. Xorg/X11 Not Installed on RPM-only (RESOLVED)
-   Issue: Xorg is NOT a JetPack RPM. It is installed in bootc Containerfiles
-          only to ease internal testing and will be removed from production
-          bootc images as well.
-   Contact: hgeaydem — confirmed Xorg is for internal testing only.
-   Affected tests: test_x11_display
-   Fix applied: assert -> warnings.warn(). Absence is expected on RPM-only
-                and future production bootc images.
+   Xorg is NOT a JetPack RPM. Only present in GUI variant (Containerfile-gui).
+   test_x11_display skips on multi-user.target, warns if missing on graphical.target.
 """
 import pytest
 import warnings
@@ -51,6 +32,32 @@ logger = getLogger(__name__)
 class TestDisplay:
     """Test Display functionality on Jetson devices."""
 
+    def test_default_target(self, ssh):
+        """Validate systemd default target.
+        Base bootc image defaults to multi-user.target (runlevel 3).
+        graphical.target is only for enabling desktop environment and requires GDM."""
+
+        systemd_target = get_systemd_target(ssh)
+
+        if systemd_target == "multi-user.target":
+            logger.info("[test_default_target] multi-user.target confirmed — base bootc default")
+            return
+
+        if systemd_target == "graphical.target":
+            gdm_installed = ssh.run("rpm -q gdm", fail_on_rc=False)
+            gdm_active = ssh.run("systemctl is-active gdm.service", fail_on_rc=False)
+            assert gdm_installed.exit_status == 0 and gdm_active.stdout.strip() == "active", (
+                "Default bootc target is multi-user.target, graphical.target is only for "
+                "enabling desktop environment and GDM is not installed/active."
+            )
+            logger.info("[test_default_target] graphical.target with GDM active — GUI variant deployed")
+            return
+
+        assert False, (
+            f"Unexpected target: {systemd_target!r} — "
+            f"only multi-user.target and graphical.target are supported."
+        )
+
     def test_display_devices(self, ssh):
         """Test display device nodes are present.
         Checks for DRM (/dev/dri/*) or framebuffer (/dev/fb*) device nodes"""
@@ -59,48 +66,36 @@ class TestDisplay:
         assert result.exit_status == 0, f"Failed to check display devices: {result.stderr}"
 
     def test_display_by_drm(self, ensure_pd_ignore_unused):
-        """Test display sysfs entries and DRM connector status.
-        Verifies nvidia_drm loading behavior based on systemd target, then checks
-        /sys/class/drm/card*-*/status for display connection (see Known Issue #1)."""
+        """Test DRM sysfs entries and connector status via tegra_drm.
+        tegra_drm is kernel auto-loaded on both targets. nvidia_drm is NOT
+        required and should NOT be loaded by any daemon or test."""
         ssh = ensure_pd_ignore_unused
-        
-        # Step 1: Check systemd target
-        systemd_target = get_systemd_target(ssh)
 
-        # Step 2: Check if nvidia_drm is loaded
-        drm_mod = ssh.run("lsmod | grep nvidia_drm", fail_on_rc=False)
-        drm_loaded = drm_mod.exit_status == 0
-        logger.info(f"[test_display_by_drm] drm_loaded: {drm_loaded}")
-
-        # Step 3: Handle based on target + module state
-        if systemd_target == "graphical.target" and not drm_loaded:
-            # graphical.target should auto-load nvidia_drm via load-nvidia-drm.service
-            assert False, (
-                "nvidia_drm is NOT loaded on graphical.target — "
-                "load-nvidia-drm.service should have loaded it"
-            )
-        # In Case of not graphical.target, load nvidia_drm on demand (multi-user.target: nvidia_drm is not auto-loaded, load on demand)
-        if not drm_loaded:
-            load_result = ssh.sudo("modprobe nvidia_drm", fail_on_rc=False)
-            assert load_result.exit_status == 0, (
-                f"Failed to load nvidia_drm on demand: {load_result.stderr}"
-            )
-
-        # Step 4: Test DRM connector status
         result = ssh.run("ls -1 /sys/class/drm/", fail_on_rc=False)
         assert result.exit_status == 0, f"Failed to access DRM sysfs: {result.stderr}"
+
+        systemd_target = get_systemd_target(ssh)
         result = ssh.run("cat /sys/class/drm/card*-*/status", fail_on_rc=False)
+        if result.exit_status != 0 and systemd_target != "graphical.target":
+            pytest.skip("DRM connector status not applicable on multi-user.target (no graphical session)")
         assert result.exit_status == 0, f"Failed to check display status: {result.stderr}"
         if "disconnected" in result.stdout.lower():
             warnings.warn("Display is not connected", UserWarning)
 
     def test_x11_display(self, ssh):
-        """Test X11 display is installed on the system.- Warn if not installed."""
+        """Test X11/Xorg server is available.
+        Only meaningful on graphical.target (GUI variant).
+        On multi-user.target, Xorg is not expected — skip."""
+
+        systemd_target = get_systemd_target(ssh)
+        if systemd_target != "graphical.target":
+            pytest.skip("X11 test not applicable on multi-user.target (no graphical session)")
 
         result = ssh.run("which Xorg || which X", fail_on_rc=False)
         if result.exit_status != 0:
             warnings.warn(
-                "Xorg/X11 server is not installed — Xorg is not part of JetPack RPMs",
+                "Xorg/X11 server is not installed on graphical.target — "
+                "expected in GUI variant (Containerfile-gui)",
                 UserWarning,
             )
 
@@ -113,11 +108,19 @@ class TestDisplay:
         assert "wayland" in result.stdout.lower(), "No Wayland libraries found (nvidia-jetpack-wayland may be missing)"
 
     def test_wayland_socket_or_server(self, ssh):
-        """Test Wayland socket or compositor binary available (optional on headless)."""
-        
+        """Test Wayland compositor is running with an active socket.
+        Only expected on graphical.target. On multi-user.target, skip."""
+
+        systemd_target = get_systemd_target(ssh)
+        if systemd_target != "graphical.target":
+            pytest.skip("Wayland compositor test not applicable on multi-user.target")
+
         socket_result = ssh.run("ls /run/user/*/wayland-*", fail_on_rc=False)
         which_result = ssh.run("which weston || which Xwayland || which xrandr", fail_on_rc=False)
         has_socket = socket_result.exit_status == 0 and socket_result.stdout.strip()
         has_binary = which_result.exit_status == 0 and which_result.stdout.strip()
         if not (has_socket or has_binary):
-            pytest.skip("No Wayland socket or compositor binary (headless or wayland not running | only on graphical session)")
+            warnings.warn(
+                "No Wayland socket or compositor binary installed (wayland not running)",
+                UserWarning,
+            )
