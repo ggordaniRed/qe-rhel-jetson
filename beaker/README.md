@@ -199,6 +199,34 @@ ansible-playbook -i inventory.yml install_jetpack_rpms.yml \
   -e "target_host=${JETSON_HOST}" --check
 ```
 
+### Optional: Enable Graphical Desktop (GDM)
+
+The base bootc image does not include GDM and defaults to multi-user.target. To enable graphical desktop, you have two options:
+
+1. **Build a GUI container image** using `jumpstarter/Containerfile-gui` (layers GDM + GNOME on top of the base bootc image, sets graphical.target) — then use that image in the podman run command below.
+2. **Use the podman run command below** with a pre-built GUI variant image that already includes GDM.
+
+The graphical.target is only for enabling the desktop environment — it is not the default bootc target.
+
+```bash
+podman run --rm --privileged \
+  -v /dev:/dev \
+  -v /var/lib/containers:/var/lib/containers \
+  -v /:/target \
+  --pid=host \
+  --security-opt label=type:unconfined_t \
+  <gui-variant-image> \
+  /bin/bash -c '
+    bootc install to-existing-root \
+      --root-ssh-authorized-keys=/target/root/.ssh/authorized_keys \
+      --skip-fetch-check
+    systemctl --root=/target enable gdm.service || true
+    systemctl --root=/target set-default graphical.target || true
+  '
+```
+
+The Jetson should boot with a graphical desktop environment (GDM login screen).
+
 ### 6. Run Tests
 
 ```bash

@@ -6,6 +6,8 @@ PVA (Programmable Vision Accelerator) / VPI tests for Jetson RPMs.
 """
 import pytest
 import os
+import time
+import logging
 from pathlib import Path
 from tests_suites import conftest as _conftest
 from tests_resources.container_ops import (
@@ -13,11 +15,15 @@ from tests_resources.container_ops import (
     L4T_JETPACK_IMAGE,
 )
 
+logger = logging.getLogger(__name__)
+
 FILE = Path(os.path.realpath(__file__)).parent
 
 
 class TestPVA:
     """Test PVA/VPI functionality on Jetson devices."""
+
+    MAX_RETRIES = 2
 
     @pytest.fixture(scope="class")
     def l4t_vpi_image(self, ssh):
@@ -50,7 +56,9 @@ class TestPVA:
     @pytest.mark.critical
     def test_vpi_all_samples(self, ssh, l4t_vpi_image):
         """Test all VPI samples across all backends via L4T container.
-        Uses CDI device exposure + PVA auth disable."""
+        Uses CDI device exposure + PVA auth disable.
+        Retries up to MAX_RETRIES times — dcf_tracker CUDA backend is flaky due to GPU address-space fragmentation 
+        (VPI 3.x bug,fixed in VPI 4.0.3: https://docs.nvidia.com/vpi/release_notes_4_0_5.html)."""
         spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
         # Disable PVA auth if PVA supported (needed for pva and ofa-pva-vic backends)
         if spec.get("pva", {}).get("supported"):
@@ -65,5 +73,27 @@ class TestPVA:
             skip_backends.extend(["pva", "ofa", "ofa-pva-vic"])
             extra_flags = f"-e SKIP_BACKENDS={','.join(skip_backends)}"
 
-        result = run_container(ssh, l4t_vpi_image, "/opt/run-vpi-tests.sh", timeout=600, extra_flags=extra_flags)
-        assert result.exit_status == 0, f"VPI tests failed (see output above for details): {result.stderr}"
+        last_result = None
+        for attempt in range(1, self.MAX_RETRIES + 2):
+            if attempt > 1:
+                logger.warning(
+                    "VPI test attempt %d/%d — retrying after failure "
+                    "(dcf_tracker CUDA flaky due to GPU address-space fragmentation)",
+                    attempt, self.MAX_RETRIES + 1,
+                )
+                ssh.sudo("sync; sync; sync", fail_on_rc=False)
+                ssh.sudo("echo 3 | tee /proc/sys/vm/drop_caches", fail_on_rc=False)
+                time.sleep(5)
+
+            last_result = run_container(ssh, l4t_vpi_image, "/opt/run-vpi-tests.sh", timeout=600, extra_flags=extra_flags)
+            if last_result.exit_status == 0:
+                if attempt > 1:
+                    logger.info("VPI test passed on attempt %d/%d", attempt, self.MAX_RETRIES + 1)
+                break
+        else:
+            logger.error("VPI test failed after %d attempts", self.MAX_RETRIES + 1)
+
+        assert last_result.exit_status == 0, (
+            f"VPI tests failed after {self.MAX_RETRIES + 1} attempts "
+            f"(see output above for details): {last_result.stderr}"
+        )

@@ -55,7 +55,7 @@ class TestUSBs:
             )
 
             # Get actual lsusb lines for this speed
-            result = ssh.sudo(f"lsusb -t | grep -v Bus | grep {speed}", fail_on_rc=False)
+            result = ssh.sudo(f"lsusb -t | grep -v Bus | grep hub | grep {speed}", fail_on_rc=False)
             assert result.exit_status == 0, f"Failed to find USB with speed {speed}: {result.stderr}"
             lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
 

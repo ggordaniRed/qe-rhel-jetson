@@ -1,0 +1,27 @@
+# NGC container images to pre-pull before pytest execution.
+# Pulled in order listed (smallest first). Each gets a fresh SSH connection.
+# ${L4T_JETPACK_IMAGE} is expanded from the environment variable at runtime.
+
+images:
+  - url: "${L4T_JETPACK_IMAGE}"
+    timeout: 900
+    required: true
+    size_hint: "~1.5GB"
+
+  - url: "nvcr.io/nvidia/tensorrt:25.09-py3-igpu"
+    timeout: 2400
+    required: true
+    size_hint: "~3GB"
+
+  - url: "nvcr.io/nvidia/pytorch:25.09-py3-igpu"
+    timeout: 3600
+    required: true
+    size_hint: "~10-15GB"
+
+  - url: "nvcr.io/nvidia/tensorflow:24.04-tf2-py3-igpu"
+    timeout: 3600
+    required: true
+    size_hint: "~10-15GB"
+
+rest_between_pulls: 30
+min_disk_space_mb: 5000
