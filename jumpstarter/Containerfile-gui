@@ -17,10 +17,16 @@ RUN dnf install -y --nogpgcheck \
     gnome-shell \
     gnome-control-center \
     nautilus \
+    xorg-x11-server-Xorg \
     xorg-x11-drivers \
+    rsync \
     x11vnc \
     && dnf clean all
 
-RUN usermod -aG video gdm
+RUN usermod -aG video gdm && \
+    systemctl enable gdm.service && \
+    systemctl set-default graphical.target
 
-RUN systemctl set-default graphical.target
+RUN set -x; kver=$(cd /usr/lib/modules && echo *); \
+    rm -f /usr/lib/modules/$kver/initramfs.img && \
+    dracut -vf /usr/lib/modules/$kver/initramfs.img $kver

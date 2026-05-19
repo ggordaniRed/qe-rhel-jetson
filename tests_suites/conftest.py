@@ -112,16 +112,12 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
 
     main_rhel_version = str(rhel_version).split(".")[0]
     nightly_base = f"https://download.devel.redhat.com/rhel-{main_rhel_version}/nightly/RHEL-{main_rhel_version}/latest-RHEL-{rhel_version}/compose"
-    cmd_appstream = f"dnf config-manager --add-repo {nightly_base}/AppStream/aarch64/os/"
     cmd_baseos = f"dnf config-manager --add-repo {nightly_base}/BaseOS/aarch64/os/"
-    # sslverify=0: download.devel.redhat.com uses Red Hat internal CA not in bootc trust store
+    cmd_appstream = f"dnf config-manager --add-repo {nightly_base}/AppStream/aarch64/os/"
     cmd_sslverify = (
-        'for f in /etc/yum.repos.d/download.devel.redhat.com_*.repo; do '
-        '[ -f "$f" ] && grep -q "^sslverify" "$f" '
-        '&& sed -i "s/^sslverify.*/sslverify=0/" "$f" '
-        '|| echo "sslverify=0" >> "$f"; done'
+        'for repo in /etc/yum.repos.d/download.devel.redhat.com_*.repo; do '
+        'echo -e "sslverify=0\\ngpgcheck=0" >> "$repo"; done'
     )
-    # --nogpgcheck: bootc images don't ship pre-imported GPG keys
     cmd_epel = f"dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-{main_rhel_version}.noarch.rpm -y"
 
     result = ssh.sudo("dnf repolist")
@@ -131,9 +127,8 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
         logger.info("[Setup] Nightly repos missing, installing for RHEL %s", rhel_version)
         for attempt in range(1, 4):
             try:
-                ssh.sudo(cmd_appstream)
                 ssh.sudo(cmd_baseos)
-                ssh.sudo(cmd_sslverify)
+                ssh.sudo(cmd_appstream)
                 break
             except Exception as e:
                 if attempt < 3:
@@ -141,6 +136,7 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
                     time.sleep(5)
                 else:
                     raise
+    ssh.run(cmd_sslverify)
 
     if "epel" not in repos:
         logger.info("[Setup] EPEL missing, installing for RHEL %s", rhel_version)
@@ -315,7 +311,7 @@ def l4t_image_pulled(hardware_info_session):
         JETSON_TIMEOUT,
         key_filename=key_path,
     ) as ssh:
-        ssh.sudo(f"podman pull {L4T_JETPACK_IMAGE}", timeout=300, fail_on_rc=False)
+        ssh.sudo(f"podman pull {L4T_JETPACK_IMAGE}", timeout=900)
     yield
 
 @pytest.fixture(scope="session", autouse=True)

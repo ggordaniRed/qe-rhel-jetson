@@ -17,9 +17,13 @@ PODMAN_GPU_FLAGS = "--device nvidia.com/gpu=all --group-add keep-groups --securi
 # Configurable L4T image tag
 L4T_JETPACK_IMAGE = os.getenv("L4T_JETPACK_IMAGE", "nvcr.io/nvidia/l4t-jetpack:r36.4.0")
 
+# Default building container image timeout in seconds (30 minutes)
+DEFAULT_BUILD_TIMEOUT = 900
+# Default running container timeout in seconds (10 minutes)
+DEFAULT_RUN_TIMEOUT = 600
 
 def build_container_image(ssh, dockerfile_path, image_tag, context_files=None,
-                          build_args=None, timeout=600, suite_name="test"):
+                          build_args=None, timeout=DEFAULT_BUILD_TIMEOUT, suite_name="test"):
     """
     Build a container image from a Dockerfile on the remote device.
 
@@ -32,7 +36,7 @@ def build_container_image(ssh, dockerfile_path, image_tag, context_files=None,
         image_tag: Tag for the built image (e.g., "l4t-cuda-tests:r36.4.0-v12.9")
         context_files: Optional list of local Path objects to upload alongside Dockerfile
         build_args: Optional dict of build args (e.g., {"CUDA_SAMPLES_VERSION": "v12.9"})
-        timeout: Build timeout in seconds (default 600 = 10 min)
+        timeout: Build timeout in seconds (default is value in seconds of DEFAULT_BUILD_TIMEOUT)
         suite_name: Name prefix for temp dir (e.g., "cuda", "vpi") for easy identification
 
     Returns:
@@ -61,7 +65,7 @@ def build_container_image(ssh, dockerfile_path, image_tag, context_files=None,
     return image_tag
 
 
-def run_container(ssh, image_tag, command="", timeout=600, extra_flags=""):
+def run_container(ssh, image_tag, command="", timeout=DEFAULT_RUN_TIMEOUT, extra_flags=""):
     """
     Run a command in a container image via podman run --rm.
     Applies RHEL-specific GPU flags automatically.

@@ -250,6 +250,8 @@ dnf install --transient -y x11vnc
 
 # 2. Find the actual display number and Xauthority path
 export XDISPLAY=$(cat /proc/$(pgrep -o gnome-shell)/environ | tr '\0' '\n' | grep DISPLAY | cut -d= -f2)
+# or if gnome-shell directory not exists
+export XDISPLAY=$(ls /tmp/.X11-unix/ | sed 's/X/:/') # probebly without gnome-shell directory will fail
 export XAUTH=$(ps aux | grep Xorg | grep -oP '(?<=-auth )\S+')
 
 # 3. Start x11vnc

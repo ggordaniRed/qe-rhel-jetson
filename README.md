@@ -76,6 +76,7 @@ qe-rhel-jetson/
 │
 ├── jumpstarter/                # Jumpstarter integration for hardware testing
 │   └── wrapper.py              # Flash existing image & test via Jumpstarter framework
+│   └── container_images.yaml   # container images to pre-pull before pytest execution           
 │
 └── .github/workflows/          # CI/CD - IN PROGRESS (Blocked by Firewall issues)
     └── beaker-test.yml         # Reserve Beaker machine, deploy, run tests

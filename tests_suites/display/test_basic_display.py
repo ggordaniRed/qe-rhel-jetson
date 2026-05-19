@@ -92,12 +92,7 @@ class TestDisplay:
             pytest.skip("X11 test not applicable on multi-user.target (no graphical session)")
 
         result = ssh.run("which Xorg || which X", fail_on_rc=False)
-        if result.exit_status != 0:
-            warnings.warn(
-                "Xorg/X11 server is not installed on graphical.target — "
-                "expected in GUI variant (Containerfile-gui)",
-                UserWarning,
-            )
+        assert result.exit_status == 0, f"Xorg/X11 server is not installed on graphical.target: {result.stderr}"
 
     def test_wayland_libs(self, ssh):
         """Test Wayland-related libraries are present (nvidia-jetpack-wayland).

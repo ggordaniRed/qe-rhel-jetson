@@ -5,6 +5,7 @@ import time
 import sys
 import os
 import re
+import yaml
 import subprocess
 from pathlib import Path
 from logging import getLogger
@@ -30,6 +31,115 @@ if PASSWORD is None and KEY_PATH is None:
 key_filename = os.path.expanduser(KEY_PATH) if KEY_PATH else None
 if key_filename and not os.path.exists(key_filename):
     raise ValueError(f"SSH key file not found: {key_filename}")
+
+
+def _expand_env_vars(text):
+    """Expand ${VAR} patterns in text using os.environ."""
+    return re.sub(r'\$\{([^}]+)\}', lambda m: os.environ.get(m.group(1), m.group(0)), text)
+
+
+def _prepull_container_images(addr, username, password, key_filename):
+    """Pre-pull NGC container images listed in container_images.yaml.
+
+    Creates a fresh SSH session for each pull through the active
+    TcpPortforwardAdapter tunnel.  Performs health checks (disk space,
+    memory cache drop) and rest periods between pulls to avoid
+    overloading the device.
+    """
+    if os.environ.get("SKIP_PREPULL", "").strip() in ("1", "true", "yes"):
+        logger.info("[wrapper] SKIP_PREPULL is set, skipping container image pre-pull")
+        return
+
+    config_path = Path(__file__).parent / "container_images.yaml"
+    if not config_path.exists():
+        logger.warning("[wrapper] No container_images.yaml found, skipping pre-pull")
+        return
+
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    except Exception as e:
+        logger.warning("[wrapper] Failed to parse container_images.yaml: %s, skipping pre-pull", e)
+        return
+
+    images = config.get("images", [])
+    rest_period = config.get("rest_between_pulls", 30)
+    min_disk_mb = config.get("min_disk_space_mb", 5000)
+
+    if not images:
+        raise RuntimeError("[wrapper] No images listed in container_images.yaml")
+
+    from infra_tests.ssh_client import SSHConnection
+
+    pulled, cached, failed = [], [], []
+    logger.info("[wrapper] Starting NGC container image pre-pull (%d images)...", len(images))
+
+    for i, img in enumerate(images):
+        url = _expand_env_vars(img["url"])
+        timeout = img.get("timeout", 1800)
+        required = img.get("required", True)
+        size_hint = img.get("size_hint", "unknown size")
+
+        print(f"[wrapper] Pre-pulling image {i + 1}/{len(images)}: {url} ({size_hint}, timeout={timeout}s)...", flush=True)
+        logger.info("[wrapper] Pre-pulling image %d/%d: %s (%s, timeout=%ds)...",
+                    i + 1, len(images), url, size_hint, timeout)
+
+        try:
+            with SSHConnection(addr[0], username, password, addr[1],
+                               key_filename=key_filename) as ssh:
+                # Check disk space on /var (where podman stores images on bootc)
+                result = ssh.sudo("df -m /var | tail -1 | awk '{print $4}'", fail_on_rc=False)
+                try:
+                    avail_mb = int(result.stdout.strip())
+                    logger.info("[wrapper]   Disk space: %dMB available on /var (min: %dMB)", avail_mb, min_disk_mb)
+                    if avail_mb < min_disk_mb:
+                        logger.warning("[wrapper]   Low disk space: %dMB < %dMB — pull may fail", avail_mb, min_disk_mb)
+                except (ValueError, AttributeError):
+                    logger.warning("[wrapper]   Could not parse disk space, continuing anyway")
+
+                # Check if already cached
+                check = ssh.sudo(f"podman image exists {url}", fail_on_rc=False)
+                if check.exit_status == 0:
+                    print(f"[wrapper]   Image already cached, skipping", flush=True)
+                    logger.info("[wrapper]   Image already cached, skipping")
+                    cached.append(url)
+                    continue
+
+                # Drop memory caches before pull
+                logger.info("[wrapper]   Dropping memory caches...")
+                ssh.sudo("sync; sync; sync", fail_on_rc=False)
+                ssh.sudo("echo 3 | tee /proc/sys/vm/drop_caches", fail_on_rc=False)
+
+                # Pull the image
+                start = time.time()
+                ssh.sudo(f"podman pull {url}", timeout=timeout)
+                elapsed = int(time.time() - start)
+                print(f"[wrapper]   Pull complete in {elapsed}s", flush=True)
+                logger.info("[wrapper]   Pull complete in %ds", elapsed)
+                pulled.append(url)
+
+        except Exception as e:
+            if required:
+                raise RuntimeError(f"[wrapper] Required image pull failed ({url}): {e}")
+            logger.warning("[wrapper]   Optional image pull failed: %s: %s", url, e)
+            failed.append(url)
+
+        # Rest between pulls (skip after the last one)
+        if i < len(images) - 1:
+            logger.info("[wrapper]   Resting %ds before next pull...", rest_period)
+            time.sleep(rest_period)
+            # SSH liveness probe
+            try:
+                with SSHConnection(addr[0], username, password, addr[1],
+                                   key_filename=key_filename) as probe:
+                    probe.run("echo alive", timeout=30)
+                logger.info("[wrapper]   SSH liveness check: OK")
+            except Exception:
+                logger.warning("[wrapper]   SSH liveness check failed — tunnel may be degraded")
+
+    print(f"\n[wrapper] Pre-pull complete. Pulled: {len(pulled)}, Cached: {len(cached)}, Failed: {len(failed)}", flush=True)
+    logger.info("[wrapper] Pre-pull complete. Pulled: %d, Cached: %d, Failed: %d",
+                len(pulled), len(cached), len(failed))
 
 
 def _detect_wrong_os(boot_output):
@@ -312,16 +422,31 @@ with env() as client:
 
                     if PASSWORD:
                         logger.info("[wrapper] Configuring SSH root password login via serial console...")
-                        time.sleep(5)
-                        # Flush any stale login prompts from buffer
+                        time.sleep(10)
+                        # Flush any stale output from buffer
                         try:
                             while True:
                                 p.read_nonblocking(size=4096, timeout=1)
                         except Exception:
                             pass
-                        # Send Enter to get a single clean login prompt
+                        # Send Enter and wait for a clean login prompt.
+                        # If the device rebooted after firstboot (SELinux relabel,
+                        # growpart, etc.), the prompt won't appear — wait for the
+                        # second boot to complete.
                         p.sendline("")
-                        p.expect_exact("login:", timeout=30)
+                        try:
+                            p.expect_exact("login:", timeout=60)
+                        except Exception:
+                            logger.info("[wrapper] No login prompt — device may have rebooted (firstboot). Waiting for next boot...")
+                            if not _wait_for_login(p):
+                                raise RuntimeError("[wrapper] Failed to reach login prompt after device reboot")
+                            try:
+                                while True:
+                                    p.read_nonblocking(size=4096, timeout=1)
+                            except Exception:
+                                pass
+                            p.sendline("")
+                            p.expect_exact("login:", timeout=60)
                         p.sendline(USERNAME)
                         p.expect("assword:", timeout=30)
                         p.sendline(PASSWORD)
@@ -380,6 +505,15 @@ with env() as client:
                 key_filename=key_filename,
             ) as ssh:
                 ssh.sudo("/usr/libexec/bootc-generic-growpart")
+
+            os.environ.setdefault("L4T_JETPACK_IMAGE", "nvcr.io/nvidia/l4t-jetpack:r36.4.0")
+            print("\n" + "=" * 80)
+            print("[wrapper] Pre-pulling container images — this may take a while...")
+            print("[wrapper] DO NOT force-exit the wrapper while images are being pulled.")
+            print("[wrapper] To check progress, open another terminal and run:")
+            print("[wrapper] 'jmp shell --lease <LEASE> -- j serial start-console' and then 'pgrep -fa podman'")
+            print("=" * 80 + "\n", flush=True)
+            _prepull_container_images(addr, USERNAME, PASSWORD, key_filename)
 
             logger.info(f"[wrapper] Launching pytest with JETSON_HOST={os.environ['JETSON_HOST']} "
                   f"JETSON_PORT={os.environ['JETSON_PORT']} "
