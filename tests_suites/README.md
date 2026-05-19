@@ -3,7 +3,7 @@
 This directory contains pytest-based tests for Jetson RPMs using SSH connections via fabric (high-level paramiko wrapper).
 
 ## Jetson Structure
-- HARDWARE ACCELERATORS: GPU (CUDA), DLA (AI), PVA (Vision), Video Enc/Dec
+- HARDWARE ACCELERATORS: GPU (CUDA), DLA (AI), PVA (Vision), VIC (Video Image Compositor), Video Enc/Dec
 - INTERFACES: CSI Camera, USBs, PCIe, Ethernet, CAN bus, Display
 - SOFTWARE FRAMEWORKS: GStreamer (MultiMedia), TensorRT (For optimal running of AI on pytorch or TensorFlow frameworks on DLA or GPU hardwares), VPI (Vision)
 
@@ -27,6 +27,7 @@ tests_suites/
 ├── cuda/                       # CUDA + cuDNN tests (PyTorch container + TensorFlow container + L4T container with outsource cuda-samples)
 ├── dla/                        # DLA + TensorRT tests (TensorRT container + L4T container, GPU + DLA cores)
 ├── pva/                        # PVA/VPI tests (L4T container, 19 VPI samples)
+├── vic/                        # VIC tests (format conversion, scaling, rotation, crop via nvvidconv)
 ├── multimedia/                 # Multimedia tests (native GStreamer + L4T MMAPI)
 ├── usbs/                       # USB tests
 ├── pcis/                       # PCI tests
@@ -72,6 +73,7 @@ pytest tests_suites/cuda/
 pytest tests_suites/dla/
 pytest tests_suites/pva/
 pytest tests_suites/multimedia/
+pytest tests_suites/vic/
 ```
 
 Run extra tests, along with basic tests (basic tests runs in Konflux/CI):

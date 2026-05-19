@@ -4,7 +4,7 @@ Pytest-based hardware test suite for NVIDIA Jetson devices on RHEL, with deploym
 
 ## Jetson Structure
 
-- HARDWARE ACCELERATORS: GPU (CUDA), DLA (AI), PVA (Vision), Video Enc/Dec
+- HARDWARE ACCELERATORS: GPU (CUDA), DLA (AI), PVA (Vision), VIC (Video Image Compositor), Video Enc/Dec
 - INTERFACES: CSI Camera, USBs, PCIe, Ethernet, CAN bus, Display
 - SOFTWARE FRAMEWORKS: GStreamer (MultiMedia), TensorRT (AI), VPI (Vision)
 
