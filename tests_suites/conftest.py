@@ -67,6 +67,7 @@ BOOTC_AVAILABLE: bool = False
 BOOTC_VERSION: Optional[Union[float, str]] = None  # str if X.Y.Z, float if X.Y
 BOOTC_IMAGE_VERSION: Optional[Union[str]] = None
 BOOTC_IMAGE_URL: Optional[str] = None
+IS_STAGE_BUILD: Optional[bool] = None
 SECURE_BOOT_STATE: Optional[str] = None
 
 if JETSON_KEY_PATH: # key path provided, use key-based authentication
@@ -226,6 +227,7 @@ def hardware_info_session():
     global FIRMWARE_VERSION, FIRMWARE_TYPE
     global HARDWARE_MODEL_NAME, KERNEL_VERSION, CPU_ARCH
     global BOOTC_AVAILABLE, BOOTC_VERSION, BOOTC_IMAGE_URL, BOOTC_IMAGE_VERSION
+    global IS_STAGE_BUILD
     global SECURE_BOOT_STATE
     RHEL_VERSION = info.get("rhel_version")
     L4T_VERSION = info.get("l4t_version")
@@ -240,6 +242,7 @@ def hardware_info_session():
     BOOTC_VERSION = info.get("bootc_version")
     BOOTC_IMAGE_VERSION = info.get("bootc_image_version")
     BOOTC_IMAGE_URL = info.get("bootc_image_url")
+    IS_STAGE_BUILD = "stage" in (BOOTC_IMAGE_URL or "").lower()
     SECURE_BOOT_STATE = info.get("secure_boot_state")
     # Skip entire session if hardware model is not in Testing Matrix (jetson_hardware_specs.yaml)
     if get_hardware_spec(HARDWARE_MODEL_NAME) is None:
@@ -294,6 +297,7 @@ def hardware_info_session():
     print(f"8. Bootc available:          {BOOTC_AVAILABLE}")
     print(f"9. Bootc image version:      {BOOTC_IMAGE_VERSION}")
     print(f"10. Bootc image URL:          {BOOTC_IMAGE_URL}")
+    print(f"11. Stage build:              {IS_STAGE_BUILD}")
     print("=" * 80 + "\n")
     yield
 
