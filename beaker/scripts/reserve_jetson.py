@@ -46,32 +46,11 @@ SSH_RETRY_INTERVAL = 30  # seconds
 JOB_XML_TEMPLATE = '''<job retention_tag="scratch">
   <whiteboard>Jetson Bootc Testing - {target_short}</whiteboard>
   <recipeSet priority="High">
-    <recipe whiteboard="" role="RECIPE_MEMBERS" ks_meta="no_autopart" kernel_options="" kernel_options_post="">
+    <recipe whiteboard="" role="RECIPE_MEMBERS" ks_meta="" kernel_options="" kernel_options_post="">
       <autopick random="false"/>
       <watchdog panic="ignore"/>
       <packages/>
-      <ks_appends>
-        <ks_append><![CDATA[
-%pre --interpreter=/bin/bash
-# Pick the largest non-eMMC disk (NVMe on Jetsons) so ESP and root
-# land on the same device — bootc requires this for to-existing-root.
-DISK=$(lsblk -dnbo NAME,SIZE,TYPE 2>/dev/null \
-       | awk '$3=="disk" && $1 !~ /^mmcblk/ {{print $1, $2}}' \
-       | sort -k2 -rn | head -1 | awk '{{print $1}}')
-[ -z "$DISK" ] && DISK=$(lsblk -dnbo NAME,SIZE,TYPE 2>/dev/null \
-       | awk '$3=="disk" {{print $1, $2}}' \
-       | sort -k2 -rn | head -1 | awk '{{print $1}}')
-cat > /tmp/partitions.ks <<EOF
-ignoredisk --only-use=$DISK
-clearpart --all --initlabel --disklabel=gpt --drives=$DISK
-reqpart --add-boot
-part / --grow --fstype xfs
-EOF
-%end
-
-%include /tmp/partitions.ks
-]]></ks_append>
-      </ks_appends>
+      <ks_appends/>
       <repos/>
       <distroRequires>
         <and>
@@ -94,16 +73,17 @@ EOF
 </job>'''
 
 
-def check_ssh_connectivity(host: str, user: str = "root", timeout: int = 10) -> bool:
-    """Check if SSH connection can be established.
-    
+def run_ssh_command(host: str, command: str, user: str = "root", timeout: int = 15) -> tuple[bool, str]:
+    """Run a command over SSH and return (success, stdout).
+
     Args:
         host: Hostname to connect to
+        command: Remote command to execute
         user: SSH username
         timeout: Connection timeout in seconds
-        
+
     Returns:
-        True if SSH connection succeeds, False otherwise
+        (True, stdout) on success, (False, "") on failure
     """
     try:
         result = subprocess.run(
@@ -115,54 +95,95 @@ def check_ssh_connectivity(host: str, user: str = "root", timeout: int = 10) -> 
                 "-o", f"ConnectTimeout={timeout}",
                 "-o", "LogLevel=ERROR",
                 f"{user}@{host}",
-                "echo", "ok"
+                command,
             ],
             capture_output=True,
             text=True,
-            timeout=timeout + 5,  # Extra buffer for subprocess
+            timeout=timeout + 10,
         )
-        return result.returncode == 0 and "ok" in result.stdout
-    except subprocess.TimeoutExpired:
-        return False
-    except Exception:
-        return False
+        return result.returncode == 0, result.stdout.strip()
+    except (subprocess.TimeoutExpired, Exception):
+        return False, ""
+
+
+def check_ssh_connectivity(host: str, user: str = "root", timeout: int = 10) -> bool:
+    """Check if SSH connection can be established.
+
+    Args:
+        host: Hostname to connect to
+        user: SSH username
+        timeout: Connection timeout in seconds
+
+    Returns:
+        True if SSH connection succeeds, False otherwise
+    """
+    ok, out = run_ssh_command(host, "echo ok", user, timeout)
+    return ok and "ok" in out
 
 
 def wait_for_ssh(host: str, timeout_minutes: int = 30, user: str = "root") -> bool:
     """Wait for SSH to become available on the host.
-    
+
     Args:
         host: Hostname to connect to
         timeout_minutes: Maximum time to wait in minutes
         user: SSH username
-        
+
     Returns:
         True if SSH becomes available, False if timeout
     """
     start_time = time.time()
     timeout_seconds = timeout_minutes * 60
     attempt = 0
-    
+
     print(f"\n⏳ Waiting for SSH connectivity (timeout: {timeout_minutes} minutes)...")
-    
+
     while (time.time() - start_time) < timeout_seconds:
         attempt += 1
         elapsed = int(time.time() - start_time)
         remaining = int(timeout_seconds - elapsed)
-        
+
         print(f"   Attempt {attempt}: Trying SSH to {host}... ", end="", flush=True)
-        
+
         if check_ssh_connectivity(host, user):
             print("✅ SUCCESS")
             return True
-        
+
         print(f"❌ (retrying in {SSH_RETRY_INTERVAL}s, {remaining}s remaining)")
-        
-        # Don't sleep if we're about to timeout
+
         if (time.time() - start_time + SSH_RETRY_INTERVAL) < timeout_seconds:
             time.sleep(SSH_RETRY_INTERVAL)
-    
+
     return False
+
+
+def verify_system_ready(host: str, user: str = "root") -> bool:
+    """SSH into the reserved machine, collect basic system info, and confirm
+    the provisioning actually completed.
+
+    Returns:
+        True if the system responds with valid info, False otherwise.
+    """
+    print(f"\n🔍 Verifying system is fully provisioned on {host}...")
+
+    checks = [
+        ("hostname",   "hostname -f"),
+        ("kernel",     "uname -r"),
+        ("os-release", "cat /etc/redhat-release 2>/dev/null || cat /etc/os-release | head -1"),
+        ("uptime",     "uptime"),
+        ("disk",       "df -h / | tail -1"),
+    ]
+
+    all_ok = True
+    for label, cmd in checks:
+        ok, out = run_ssh_command(host, cmd, user, timeout=15)
+        if ok and out:
+            print(f"   ✅ {label}: {out}")
+        else:
+            print(f"   ❌ {label}: no response")
+            all_ok = False
+
+    return all_ok
 
 
 def find_existing_job(client: BeakerClient, target: str, user: str) -> dict | None:
@@ -200,45 +221,68 @@ def find_existing_job(client: BeakerClient, target: str, user: str) -> dict | No
     return None
 
 
-def wait_for_job_running(client: BeakerClient, job_id: str, timeout_minutes: int = 60) -> bool:
+def wait_for_job_running(
+    client: BeakerClient,
+    job_id: str,
+    target_host: str,
+    timeout_minutes: int = 60,
+) -> bool:
     """Wait for a job to reach Running or Reserved status.
-    
+
+    Polls the Beaker API every 30 s but *also* probes SSH on each
+    iteration.  If the API becomes unreachable (VPN drop, timeout)
+    the function falls back to SSH: once the host answers, the job
+    is considered ready regardless of what Beaker reports.
+
     Args:
         client: BeakerClient instance
         job_id: Job ID to monitor
+        target_host: FQDN of the target machine (for SSH fallback)
         timeout_minutes: Maximum time to wait
-        
+
     Returns:
-        True if job reaches Running/Reserved, False on timeout or failure
+        True if job reaches Running/Reserved or host is SSH-reachable,
+        False on timeout or terminal failure.
     """
     start_time = time.time()
     timeout_seconds = timeout_minutes * 60
     poll_interval = 30
-    
+    api_failures = 0
+
     print(f"\n⏳ Waiting for job {job_id} to reach Running status...")
-    
+
     terminal_failed = {"Cancelled", "Aborted", "Completed"}
     target_status = {"Running", "Reserved"}
-    
+
     while (time.time() - start_time) < timeout_seconds:
+        elapsed = int(time.time() - start_time)
+
+        # -- Beaker API check --
         try:
             status = client.get_job_status(job_id)
-            elapsed = int(time.time() - start_time)
-            
+            api_failures = 0
+
             print(f"   [{elapsed}s] Job {job_id}: {status.status}")
-            
+
             if status.status in target_status:
                 return True
-            
+
             if status.status in terminal_failed:
                 print(f"❌ Job ended with status: {status.status}")
                 return False
-            
+
         except Exception as e:
-            print(f"   Warning: Could not get job status: {e}")
-        
+            api_failures += 1
+            print(f"   [{elapsed}s] Beaker API unreachable ({api_failures}x): {type(e).__name__}")
+
+        # -- SSH fallback (try after first few minutes or when API is flaky) --
+        if elapsed > 120 or api_failures >= 2:
+            if check_ssh_connectivity(target_host):
+                print(f"   [{elapsed}s] ✅ SSH to {target_host} succeeded — machine is ready")
+                return True
+
         time.sleep(poll_interval)
-    
+
     print(f"❌ Timeout waiting for job to reach Running status")
     return False
 
@@ -273,6 +317,12 @@ def main():
         help=f"SSH connectivity timeout in minutes (default: {SSH_TIMEOUT_MINUTES})",
     )
     parser.add_argument(
+        "--initial-wait",
+        type=int,
+        default=15,
+        help="Minutes to wait after job reaches Running before first SSH attempt (default: 15)",
+    )
+    parser.add_argument(
         "--skip-ssh-wait",
         action="store_true",
         help="Skip waiting for SSH connectivity",
@@ -298,76 +348,92 @@ def main():
         print("=== Job XML (dry run) ===")
         print(job_xml)
         return
-    
-    # Connect to Beaker
-    hub_url = get_hub_url()
-    print(f"🔗 Connecting to Beaker...")
-    client = get_beaker_client()
-    
-    user = client.whoami()
-    print(f"✅ Authenticated as: {user}")
-    
-    # Check for existing job first
-    existing_job = find_existing_job(client, args.target, user)
+
+    # ---- Beaker phase (best-effort) ----
+    hub_url = os.environ.get("BEAKER_HUB_URL", "")
+    beaker_ok = False
     job_id = None
-    
-    if existing_job:
-        job_id = existing_job["id"]
-        job_status = existing_job["status"]
-        print(f"\n✅ Using existing job: {job_id} (status: {job_status})")
-        
-        # If already running/reserved, skip to SSH check
-        if job_status in ("Running", "Reserved"):
-            print(f"   Job is already in {job_status} state")
+
+    try:
+        hub_url = get_hub_url()
+        print(f"🔗 Connecting to Beaker...")
+        client = get_beaker_client()
+
+        user = client.whoami()
+        print(f"✅ Authenticated as: {user}")
+
+        existing_job = find_existing_job(client, args.target, user)
+
+        if existing_job:
+            job_id = existing_job["id"]
+            job_status = existing_job["status"]
+            print(f"\n✅ Using existing job: {job_id} (status: {job_status})")
+
+            if job_status in ("Running", "Reserved"):
+                print(f"   Job is already in {job_status} state")
+            else:
+                if not wait_for_job_running(client, job_id, args.target):
+                    print(f"\n⚠️  Job {job_id} did not reach Running status via Beaker API")
+                    print(f"   Falling back to SSH verification...")
         else:
-            # Wait for job to reach Running
-            if not wait_for_job_running(client, job_id):
-                print(f"\n❌ Job {job_id} did not reach Running status")
-                sys.exit(1)
-    else:
-        # Submit new job
-        print(f"\n📋 Submitting new job:")
-        print(f"   Target: {args.target}")
-        print(f"   Distro: {args.distro}")
-        print(f"   Hours:  {args.hours}")
-        print()
-        
-        try:
+            print(f"\n📋 Submitting new job:")
+            print(f"   Target: {args.target}")
+            print(f"   Distro: {args.distro}")
+            print(f"   Hours:  {args.hours}")
+            print()
+
             job_id = client.submit_job(job_xml)
             print(f"✅ Job submitted: {job_id}")
             print(f"   View: {hub_url}/jobs/{job_id.replace('J:', '')}")
-        except Exception as e:
-            print(f"❌ Failed to submit job: {e}")
-            sys.exit(1)
-        
-        # Wait for job to reach Running status
-        if not wait_for_job_running(client, job_id):
-            print(f"\n❌ Job {job_id} did not reach Running status")
-            sys.exit(1)
-    
-    # Wait for SSH connectivity
+
+            if not wait_for_job_running(client, job_id, args.target):
+                print(f"\n⚠️  Job {job_id} did not reach Running status via Beaker API")
+                print(f"   Falling back to SSH verification...")
+
+        beaker_ok = True
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"\n⚠️  Beaker API unreachable: {type(e).__name__}")
+        print(f"   Skipping Beaker phase — falling back to SSH verification...")
+
+    # ---- SSH verification phase (always runs) ----
     if args.skip_ssh_wait:
         print(f"\n⏭️  Skipping SSH wait (--skip-ssh-wait)")
         print(f"\n📝 Next steps:")
         print(f"   1. Wait for machine to be accessible via SSH")
         print(f"   2. Run Ansible playbook to install bootc:")
         print(f"      cd ansible && ansible-playbook -i inventory.yml install_bootc.yml --ask-vault-pass")
-    else:
-        if wait_for_ssh(args.target, args.ssh_timeout):
-            print(f"\n✅ Machine {args.target} is ready!")
-            print(f"   SSH accessible as root")
+        return
+
+    if args.initial_wait > 0:
+        print(f"\n⏳ Waiting {args.initial_wait} minutes for provisioning to complete...")
+        for remaining in range(args.initial_wait, 0, -1):
+            print(f"   {remaining} min remaining...", end="\r", flush=True)
+            time.sleep(60)
+        print()
+
+    if wait_for_ssh(args.target, args.ssh_timeout):
+        if verify_system_ready(args.target):
+            print(f"\n✅ Machine {args.target} is ready and verified!")
             print(f"\n📝 Next steps:")
             print(f"   Run Ansible playbook to install bootc:")
             print(f"      GO TO qe-rhel-jetson/beaker/README.md step 3: Set Up Ansible Vault ")
         else:
-            print(f"\n❌ FAILED: Could not establish SSH connection to {args.target}")
-            print(f"   after waiting {args.ssh_timeout} minutes.")
-            print(f"\n   Possible causes:")
-            print(f"   - Machine is still being provisioned")
-            print(f"   - Network/firewall issues")
-            print(f"   - Installation failed")
-            print(f"\n   Check job status: {hub_url}/jobs/{job_id.replace('J:', '')}")
+            print(f"\n⚠️  SSH works but system verification incomplete on {args.target}")
+            print(f"   The machine may still be finalizing provisioning.")
+            print(f"   You can still try connecting manually.")
             sys.exit(1)
+    else:
+        print(f"\n❌ FAILED: Could not establish SSH connection to {args.target}")
+        print(f"   after waiting {args.ssh_timeout} minutes.")
+        print(f"\n   Possible causes:")
+        print(f"   - Machine is still being provisioned")
+        print(f"   - Network/firewall issues")
+        print(f"   - Installation failed")
+        if hub_url and job_id:
+            print(f"\n   Check job status: {hub_url}/jobs/{job_id.replace('J:', '')}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
