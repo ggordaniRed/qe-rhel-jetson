@@ -85,7 +85,8 @@ qe-rhel-jetson/
 ## Running Tests
 
 ```bash
-pytest tests_suites/              # all tests
-pytest tests_suites/cuda/         # specific component
-pytest tests_suites/ -v           # verbose output
+pytest tests_suites/                                          # all tests
+pytest tests_suites/cuda/                                     # specific component
+pytest tests_suites/ -v                                       # verbose output
+pytest tests_suites/ --target-kernel-version=5.14.0-687.12.1  # To override expected kernel version, This avoids editing `jetson_hardware_specs.yaml`
 ```

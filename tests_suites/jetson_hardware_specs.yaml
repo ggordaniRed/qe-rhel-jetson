@@ -8,6 +8,7 @@
 # -----------------------------------------------------------------------------
 # Target versions per JetPack release (used by sanity tests and session skip logic)
 # Note: jetpack_kmod_version is intentionally absent — kmod >= userspace is validated in sanity/test_version_check.py
+# Note: kernel_version can be overridden at runtime with --target-kernel-version
 # -----------------------------------------------------------------------------
 _target_versions:
 
