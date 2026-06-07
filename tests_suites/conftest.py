@@ -149,11 +149,14 @@ def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[D
     targets = specs.get("_target_versions", {})
     return targets.get(str(jetpack_userspace_version)) if jetpack_userspace_version else None
 
-def _verify_target_versions() -> list[str]:
+def _verify_target_versions(kernel_version_override: Optional[str] = None) -> list[str]:
     """Verify detected versions match targets. Returns list of mismatch messages."""
     target = _get_target_versions(JETPACK_VERSION)
     if target is None:
         return []
+    if kernel_version_override:
+        target = dict(target)
+        target["kernel_version"] = kernel_version_override
     mismatches = []
     checks = [
         (RHEL_VERSION, "rhel_version", "RHEL"),
@@ -207,7 +210,7 @@ def fetch_hardware_logs(ssh):
 # ! class fixture run once for each test class
 
 @pytest.fixture(scope="session", autouse=True)
-def hardware_info_session():
+def hardware_info_session(request):
     """
     Collect hardware and system info from the Jetson via SSH at session start.
     Sets global variables and prints SETUP summary for each pytest run.
@@ -275,7 +278,7 @@ def hardware_info_session():
         )
 
     # Skip entire session if detected versions don't match targets
-    mismatches = _verify_target_versions()
+    mismatches = _verify_target_versions(kernel_version_override=request.config.getoption("--target-kernel-version"))
     if mismatches:
         pytest.skip("Version mismatch — " + "; ".join(mismatches))
 
@@ -482,6 +485,11 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help="Run tests marked with @pytest.mark.extra (skipped by default)",
+    )
+    parser.addoption(
+        "--target-kernel-version",
+        default=None,
+        help="Override kernel_version in _target_versions (default: use value from jetson_hardware_specs.yaml)",
     )
 
 def pytest_collection_modifyitems(config, items):
