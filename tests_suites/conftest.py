@@ -304,6 +304,41 @@ def hardware_info_session(request):
     print("=" * 80 + "\n")
     yield
 
+def refresh_hardware_info_globals(ssh):
+    """
+    Re-collect hardware info from the device and update module-level globals.
+
+    Call this after a bootc switch + reboot so that all subsequent tests see
+    the new image's versions rather than the pre-switch values captured by
+    hardware_info_session at session start.
+    """
+    info = collect_hardware_info(ssh)
+    global RHEL_VERSION, L4T_VERSION, JETPACK_VERSION, JETPACK_KMOD_VERSION
+    global FIRMWARE_VERSION, FIRMWARE_TYPE
+    global HARDWARE_MODEL_NAME, KERNEL_VERSION, CPU_ARCH
+    global BOOTC_AVAILABLE, BOOTC_VERSION, BOOTC_IMAGE_URL, BOOTC_IMAGE_VERSION
+    global IS_STAGE_BUILD, SECURE_BOOT_STATE
+    RHEL_VERSION = info.get("rhel_version")
+    L4T_VERSION = info.get("l4t_version")
+    JETPACK_VERSION = info.get("jetpack_version")
+    JETPACK_KMOD_VERSION = info.get("jetpack_kmod_version")
+    FIRMWARE_VERSION = info.get("firmware_version")
+    FIRMWARE_TYPE = info.get("firmware_type")
+    HARDWARE_MODEL_NAME = info.get("hardware_model_name")
+    KERNEL_VERSION = info.get("kernel_version")
+    CPU_ARCH = info.get("cpu_arch")
+    BOOTC_AVAILABLE = info.get("bootc_available", False)
+    BOOTC_VERSION = info.get("bootc_version")
+    BOOTC_IMAGE_VERSION = info.get("bootc_image_version")
+    BOOTC_IMAGE_URL = info.get("bootc_image_url")
+    IS_STAGE_BUILD = "stage" in (BOOTC_IMAGE_URL or "").lower()
+    SECURE_BOOT_STATE = info.get("secure_boot_state")
+    logger.info(
+        "[bootc switch] Hardware info refreshed — image: %s  kernel: %s",
+        BOOTC_IMAGE_URL, KERNEL_VERSION,
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def l4t_image_pulled(hardware_info_session):
     """Pre-pull L4T JetPack container image once per session.
@@ -366,8 +401,11 @@ def drop_memory_cache(ssh):
     (with these sharing memory between the system and GPU, going out of memory due to system cache is known to happen)
     """
     yield
-    ssh.sudo("sync; sync; sync")
-    ssh.sudo("echo 3 | sudo tee /proc/sys/vm/drop_caches")
+    try:
+        ssh.sudo("sync; sync; sync")
+        ssh.sudo("echo 3 | sudo tee /proc/sys/vm/drop_caches")
+    except Exception:
+        logger.warning("drop_memory_cache teardown failed (connection may have been replaced by reboot)")
 
 @pytest.fixture(scope="class")
 def ssh():
@@ -388,31 +426,39 @@ def ssh():
         JETSON_HOST, JETSON_PORT, JETSON_USERNAME, JETSON_TIMEOUT,
     )
     key_path = os.path.expanduser(JETSON_KEY_PATH) if JETSON_KEY_PATH else None
+    ssh = None
     try:
-        with SSHConnection(
+        ssh = SSHConnection(
             JETSON_HOST,
             JETSON_USERNAME,
             JETSON_PASSWORD or None,
             JETSON_PORT,
             JETSON_TIMEOUT,
             key_filename=key_path,
-        ) as ssh:
-            yield ssh
-    except Exception as e:
-        error_msg = (
-            f"Failed to establish SSH connection to {JETSON_HOST}:{JETSON_PORT}\n"
-            f"Error: {str(e)}\n"
-            f"Please verify:\n"
-            f"  - Environment variables are set correctly (JETSON_HOST, JETSON_USERNAME, JETSON_PASSWORD or JETSON_KEY_PATH)\n"
-            f"  - For key-based auth, set JETSON_KEY_PATH=~/.ssh/id_rsa (or your private key path)\n"
-            f"  - Host is reachable (try: ping {JETSON_HOST} or telnet {JETSON_HOST} {JETSON_PORT})\n"
-            f"  - SSH service is running on the target\n"
-            f"  - Credentials are correct\n"
-            f"  - Firewall allows SSH connections\n"
-            f"  - Network connectivity is available"
         )
-        logger.error(f"\n[SSH Fixture] {error_msg}\n")
-        raise
+        yield ssh
+    except Exception as e:
+        if ssh is None:
+            error_msg = (
+                f"Failed to establish SSH connection to {JETSON_HOST}:{JETSON_PORT}\n"
+                f"Error: {str(e)}\n"
+                f"Please verify:\n"
+                f"  - Environment variables are set correctly (JETSON_HOST, JETSON_USERNAME, JETSON_PASSWORD or JETSON_KEY_PATH)\n"
+                f"  - For key-based auth, set JETSON_KEY_PATH=~/.ssh/id_rsa (or your private key path)\n"
+                f"  - Host is reachable (try: ping {JETSON_HOST} or telnet {JETSON_HOST} {JETSON_PORT})\n"
+                f"  - SSH service is running on the target\n"
+                f"  - Credentials are correct\n"
+                f"  - Firewall allows SSH connections\n"
+                f"  - Network connectivity is available"
+            )
+            logger.error(f"\n[SSH Fixture] {error_msg}\n")
+            raise
+    finally:
+        if ssh is not None:
+            try:
+                ssh.close()
+            except Exception:
+                logger.debug("SSH close during teardown ignored (connection likely broken by reboot)")
 
 # ---------------------------------------------------------------------------
 # Session File Logger — mirrors all terminal output to a timestamped file
@@ -490,6 +536,17 @@ def pytest_addoption(parser):
         "--target-kernel-version",
         default=None,
         help="Override kernel_version in _target_versions (default: use value from jetson_hardware_specs.yaml)",
+    )
+    parser.addoption(
+        "--bootc-switch-image",
+        action="store",
+        default=None,
+        metavar="IMAGE",
+        help=(
+            "Full bootc image reference to switch to before running the suite "
+            "(e.g. registry.gitlab.com/…/rhel-9.7:abc123). "
+            "Used by tests_suites/bootc/test_bootc_switch.py."
+        ),
     )
 
 def pytest_collection_modifyitems(config, items):
