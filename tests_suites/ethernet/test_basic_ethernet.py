@@ -1,7 +1,6 @@
 """
 Ethernet tests for Jetson RPMs.
 """
-import pytest
 
 class TestEthernet:
     """Test Ethernet functionality on Jetson devices."""

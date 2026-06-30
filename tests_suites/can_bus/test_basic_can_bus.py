@@ -28,7 +28,7 @@ class TestCANBus:
         """Test CAN bus interfaces are present."""
         result = ssh.sudo("ip -o link show type can")
         assert len(result.stdout.splitlines()) > 0, "No CAN bus interfaces found (should be part of Jetson SoC)"
-    
+
     def test_can_loopback(self, ssh):
         """
         Test CAN bus loopback:
@@ -36,7 +36,7 @@ class TestCANBus:
 
         since we don't have a physical transceiver on the board, we can't test the full CAN bus connection.
         CAN controller (on SOC) <--> Transceiver (on Board) <--> device (via external interface - eg USB etc)
-        The loopback test is a simple way to test the CAN bus connection without the transceiver, 
+        The loopback test is a simple way to test the CAN bus connection without the transceiver,
         which test only the CAN controller (which is part of Jetson SoC).
         """
         # get the first CAN interface that is not UP
@@ -74,4 +74,3 @@ class TestCANBus:
             except TimeoutError:
                 warnings.warn(UserWarning(f"Could not restore CAN interface {can_interface} to {original_interface_state}"))
             ssh.sudo(f"ip link set {can_interface} type can bitrate 500000 loopback off")
-        

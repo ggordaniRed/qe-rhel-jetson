@@ -3,7 +3,6 @@ Kernel module (kmod) tests for Jetson RPMs.
 Covers nvidia-jetpack-kmod: device nodes and loaded NVIDIA kernel modules.
 Based on orin-kmods coverage from nvidia-jetson-sidecar.
 """
-import pytest
 
 
 class TestKmod:

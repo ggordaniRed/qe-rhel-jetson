@@ -1,0 +1,12 @@
+[tool.ruff]
+target-version = "py39"
+src = ["tests_suites", "tests_resources", "infra_tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E402",  # module import not at top — some files init logger before imports
+    "E501",  # line too long — handled by formatter
+    "E741",  # ambiguous variable name
+    "F841",  # local variable assigned but never used
+]

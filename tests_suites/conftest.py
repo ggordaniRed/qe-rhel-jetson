@@ -82,7 +82,7 @@ else: # no key path provided, use password authentication
 
 # ---------------------------------------------------------------------------
 # Internal Functions
-# --------------------------------------------------------------------------- 
+# ---------------------------------------------------------------------------
 
 def _load_hardware_specs() -> Dict[str, Any]:
     """Load jetson_hardware_specs.yaml once."""
@@ -101,9 +101,9 @@ def _load_hardware_specs() -> Dict[str, Any]:
 def _install_beaker_repo(ssh, rhel_version: Optional[str]):
     """
     Ensure nightly repos (AppStream/BaseOS) and EPEL exist on the Jetson.
-    On Beaker deployments the Ansible playbook handles this; 
+    On Beaker deployments the Ansible playbook handles this;
     on Jumpstarter deployments there is no playbook, so this function installs them as fallback.
-    
+
     download.devel.redhat.com uses a Red Hat internal self-signed cert chain -
     bootc images don't include the internal CA, so sslverify=0 is required.
     """
@@ -396,8 +396,8 @@ def fetch_hardware_logs_session(hardware_info_session):
 @pytest.fixture(scope="class", autouse=True)
 def drop_memory_cache(ssh):
     """
-    Clear memory (RAM) cache of the Jetson before and after each test class. 
-    to ensure the shared memory is being freed 
+    Clear memory (RAM) cache of the Jetson before and after each test class.
+    to ensure the shared memory is being freed
     (with these sharing memory between the system and GPU, going out of memory due to system cache is known to happen)
     """
     yield
@@ -417,7 +417,7 @@ def ssh():
     - JETSON_PASSWORD: SSH password (optional if JETSON_KEY_PATH is set)
     - JETSON_KEY_PATH: Path to private key, e.g. ~/.ssh/id_rsa (use when auth is key-based)
     - JETSON_PORT: SSH port (default: 22)
-    
+
     Note: This fixture depends on hardware_info fixture which collects
     hardware information at the beginning of the test session.
     """

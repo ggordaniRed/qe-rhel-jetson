@@ -314,4 +314,3 @@ def collect(ssh) -> dict[str, Any]:
         "bootc_image_version": bootc["bootc_image_version"],
         "secure_boot_state": secure_boot_state,
     }
-    

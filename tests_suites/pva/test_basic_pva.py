@@ -34,7 +34,7 @@ class TestPVA:
             context_files=[FILE / "run-vpi-tests.sh"],
             suite_name="vpi",
         )
-        yield tag 
+        yield tag
         # Teardown
         cleanup_container_image(ssh, tag)
 
@@ -57,7 +57,7 @@ class TestPVA:
     def test_vpi_all_samples(self, ssh, l4t_vpi_image):
         """Test all VPI samples across all backends via L4T container.
         Uses CDI device exposure + PVA auth disable.
-        Retries up to MAX_RETRIES times — dcf_tracker CUDA backend is flaky due to GPU address-space fragmentation 
+        Retries up to MAX_RETRIES times — dcf_tracker CUDA backend is flaky due to GPU address-space fragmentation
         (VPI 3.x bug,fixed in VPI 4.0.3: https://docs.nvidia.com/vpi/release_notes_4_0_5.html)."""
         spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
         # Disable PVA auth if PVA supported (needed for pva and ofa-pva-vic backends)

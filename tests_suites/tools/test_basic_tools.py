@@ -5,7 +5,7 @@ Covers nvidia-jetpack-tools: nvpmodel (power model) and nvfancontrol.
 import re
 import pytest
 from tests_suites import conftest as _conftest
-from logging import getLogger   
+from logging import getLogger
 logger = getLogger(__name__)
 
 
@@ -57,7 +57,7 @@ class TestTools:
             min_w, max_w = power_modes_val["min"], power_modes_val["max"]
             wattages = _parse_wattage_from_stdout(result.stdout)
             assert wattages, (
-                f"Could not find any wattage value (e.g. 15W, 60W) or MAXN in nvpmodel output for range check"
+                "Could not find any wattage value (e.g. 15W, 60W) or MAXN in nvpmodel output for range check"
             )
             in_range = [w for w in wattages if min_w <= w <= max_w]
             assert in_range, (

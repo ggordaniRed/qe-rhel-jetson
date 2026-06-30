@@ -29,7 +29,7 @@ class TestCSICamera:
     def test_csi_camera_devices(self, ssh):
         """Test CSI camera device nodes are present.
         Checks for /dev/video* nodes created by the videodev module. """
-        
+
         result = ssh.run("ls -la /dev/video*", fail_on_rc=False)
         # TODO: Convert to assert once MIPI/CSI2 camera support is confirmed for the target RHEL version
         #       (see Known Issue #1 above).
@@ -51,7 +51,7 @@ class TestCSICamera:
 
     def test_camera_driver_loaded(self, ssh):
         """Test camera driver is loaded.
-        Checks if camera kernel modules 
+        Checks if camera kernel modules
         (tegra_camera, tegra_camera_platform, tegra_camera_rtcpu) are loaded."""
 
         result = ssh.run("lsmod | grep camera", fail_on_rc=False)
