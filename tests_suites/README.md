@@ -23,6 +23,7 @@ tests_resources/                # Shared utilities/functions for all tests suite
 tests_suites/
 ├── conftest.py                 # Shared fixtures + L4T image pre-pull
 ├── jetson_hardware_specs.yaml  # Jetson hardware expected values per test category
+├── bootc/                      # Bootc image switch lifecycle tests (switch, reboot, verify)
 ├── kmod/                       # Kernel module (nvidia-jetpack-kmod)
 ├── cuda/                       # CUDA + cuDNN tests (PyTorch container + TensorFlow container + L4T container with outsource cuda-samples)
 ├── dla/                        # DLA + TensorRT tests (TensorRT container + L4T container, GPU + DLA cores)
@@ -90,6 +91,21 @@ Run only critical tests (marked with @pytest.mark.critical):
 ```bash
 pytest -m critical tests_suites/
 ```
+
+### Bootc Switch Tests
+
+Run bootc switch tests to verify the system can switch to a new image, survive a reboot, and come back healthy:
+```bash
+pytest tests_suites/bootc/ --bootc-switch-image=<new_image>
+```
+
+Run the full upgrade-then-test pipeline (bootc switch first, then all hardware tests):
+```bash
+pytest tests_suites/bootc/ tests_suites/ \
+    --bootc-switch-image=quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel-98-bootc:<new_tag>
+```
+
+The bootc directory is listed first so the switch and reboot complete before the rest of the suite starts. All subsequent tests open fresh SSH connections and run against the new image.
 
 ## How to Warn
 

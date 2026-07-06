@@ -72,7 +72,7 @@ qe-rhel-jetson/
 │
 ├── beaker/                     # Beaker reservation & deployment automation
 │   ├── scripts/                # CLI tools (reserve_jetson.py)
-│   └── ansible/                # Ansible playbooks (bootc install, RPM install)
+│   └── ansible/                # Ansible playbooks (bootc install, bootc switch, RPM install)
 │
 ├── jumpstarter/                # Jumpstarter integration for hardware testing
 │   └── wrapper.py              # Flash existing image & test via Jumpstarter framework
@@ -88,5 +88,26 @@ qe-rhel-jetson/
 pytest tests_suites/                                          # all tests
 pytest tests_suites/cuda/                                     # specific component
 pytest tests_suites/ -v                                       # verbose output
-pytest tests_suites/ --target-kernel-version=5.14.0-687.12.1  # To override expected kernel version, This avoids editing `jetson_hardware_specs.yaml`
+pytest tests_suites/ --target-kernel-version=5.14.0-687.12.1  # override expected kernel version
+```
+
+### Bootc Switch Tests
+
+Test the full bootc image switch lifecycle (switch to new image, reboot, verify):
+```bash
+pytest tests_suites/bootc/ --bootc-switch-image=<registry>/<image>:<tag>
+```
+
+Run switch + all hardware tests in one session:
+```bash
+pytest tests_suites/bootc/ tests_suites/ --bootc-switch-image=<image>
+```
+
+### Bootc Switch via Ansible
+
+Switch a device to a new bootc image using Ansible:
+```bash
+ansible-playbook -i beaker/ansible/inventory.yml beaker/ansible/bootc_switch.yml \
+    -e "bootc_image_tag=<new_tag>" \
+    -e "skip_registry_login=true"
 ```
