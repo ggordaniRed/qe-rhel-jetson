@@ -277,6 +277,48 @@ vncviewer localhost:5900
 
 ---
 
+## SPI & I2C Tests
+
+### I2C — Works Out of the Box
+
+I2C buses are detected automatically and internal peripherals (PMICs, EEPROMs) respond without any additional configuration. Tests install `i2c-tools` and scan all available buses.
+
+### SPI — Known Blockers on RHEL 9.8
+
+SPI hardware is present (two `spi-tegra114` controllers at `3210000.spi` and `3230000.spi`), but **three kernel-level issues** prevent userspace SPI access. The SPI pytest tests will **skip** (not fail) when these issues are present.
+
+| # | Issue | Severity |
+|---|-------|----------|
+| 1 | `CONFIG_SPI_SPIDEV` is not enabled — `spidev` module doesn't exist | Blocker |
+| 2 | `spi-tegra114` driver rejects SPI devices with "Invalid delay unit" | Blocker |
+| 3 | Device tree uses `tegra-spidev` compatible string, not matched by upstream `spidev` | Medium |
+
+**Verification commands:**
+
+```bash
+# Check if spidev is compiled
+grep SPI_SPIDEV /usr/lib/modules/$(uname -r)/config
+
+# Check dmesg for delay unit errors
+dmesg | grep -i "Invalid delay\|can't setup spi"
+
+# Check device tree compatible strings
+cat /proc/device-tree/bus@0/spi@3210000/spi@0/compatible
+
+# Check SPI controllers exist
+ls /sys/class/spi_master/
+```
+
+An upstream fix for Bug 2 exists ([commit e979a7c79fbc](https://github.com/torvalds/linux/commit/e979a7c79fbc706f6dac913af379ef4caa04d3d5)) but has not been backported to RHEL 9.8 yet.
+
+**References:**
+- Upstream bug report: [\[regression\] jetson-tk1: spi do not probe anymore](https://www.spinics.net/lists/linux-tegra/msg82262.html)
+- Upstream fix: [\[PATCH\] spi: tegra114: Use value to check for invalid delays](https://www.spinics.net/lists/linux-tegra/msg82413.html)
+- NVIDIA forum: [Jetson AGX Orin SPI "Invalid delay unit"](https://forums.developer.nvidia.com/t/jetson-agx-orin-spi-invalid-delay-unit-2-should-be-spi-delay-unit-sck/331662)
+- Kernel docs: [SPI userspace API](https://docs.kernel.org/spi/spidev.html)
+
+---
+
 ## What wrapper.py Does
 
 1. Connects storage to DUT and power-cycles the device
