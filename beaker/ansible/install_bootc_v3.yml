@@ -38,23 +38,44 @@
           - registry_user is defined
           - registry_pass is defined
         fail_msg: "registry_user and registry_pass are required. Use -e 'registry_user=xxx registry_pass=xxx'"
-    
+
     - name: Display target information
       ansible.builtin.debug:
         msg: |
           Target: {{ inventory_hostname }} ({{ ansible_host }})
           Image:  {{ bootc_image }}
-          OS:     {{ ansible_distribution | default('unknown') }} {{ ansible_distribution_version | default('') }}
-          Arch:   {{ ansible_architecture | default('unknown') }}
+          OS:     {{ ansible_facts['distribution'] | default('unknown') }} {{ ansible_facts['distribution_version'] | default('') }}
+          Arch:   {{ ansible_facts['architecture'] | default('unknown') }}
   
   tasks:
     #=========================================================================
-    # Step 1: Install podman
+    # Step 1: Configure RHEL repos and install podman
     #=========================================================================
+    - name: Add RHEL AppStream repository
+      ansible.builtin.command:
+        cmd: >
+          dnf config-manager --add-repo
+          http://download.eng.rdu.redhat.com/released/rhel-{{ ansible_facts['distribution_major_version'] }}/RHEL-{{ ansible_facts['distribution_major_version'] }}/{{ ansible_facts['distribution_version'] }}.0/AppStream/aarch64/os/
+      register: appstream_repo_result
+      changed_when: appstream_repo_result.rc == 0
+      failed_when: false
+      tags: [podman]
+
+    - name: Add RHEL BaseOS repository
+      ansible.builtin.command:
+        cmd: >
+          dnf config-manager --add-repo
+          http://download.eng.rdu.redhat.com/released/rhel-{{ ansible_facts['distribution_major_version'] }}/RHEL-{{ ansible_facts['distribution_major_version'] }}/{{ ansible_facts['distribution_version'] }}.0/BaseOS/aarch64/os/
+      register: baseos_repo_result
+      changed_when: baseos_repo_result.rc == 0
+      failed_when: false
+      tags: [podman]
+
     - name: Install podman
       ansible.builtin.dnf:
         name: podman
         state: present
+        disable_gpg_check: true
       tags: [podman]
     
     #=========================================================================
