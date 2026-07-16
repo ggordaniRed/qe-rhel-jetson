@@ -38,23 +38,49 @@
           - registry_user is defined
           - registry_pass is defined
         fail_msg: "registry_user and registry_pass are required. Use -e 'registry_user=xxx registry_pass=xxx'"
-    
+
+    - name: Set RHEL version facts
+      ansible.builtin.set_fact:
+        rhel_version: "{{ ansible_distribution_version }}"
+        rhel_major_version: "{{ ansible_distribution_major_version }}"
+
     - name: Display target information
       ansible.builtin.debug:
         msg: |
           Target: {{ inventory_hostname }} ({{ ansible_host }})
           Image:  {{ bootc_image }}
-          OS:     {{ ansible_distribution | default('unknown') }} {{ ansible_distribution_version | default('') }}
+          OS:     {{ ansible_distribution | default('unknown') }} {{ rhel_version }}
           Arch:   {{ ansible_architecture | default('unknown') }}
   
   tasks:
     #=========================================================================
-    # Step 1: Install podman
+    # Step 1: Configure RHEL repos and install podman
     #=========================================================================
+    - name: Add RHEL AppStream repository
+      ansible.builtin.command:
+        cmd: >
+          dnf config-manager --add-repo
+          http://download.eng.rdu.redhat.com/released/rhel-{{ rhel_major_version }}/RHEL-{{ rhel_major_version }}/{{ rhel_version }}.0/AppStream/aarch64/os/
+      register: appstream_repo_result
+      changed_when: appstream_repo_result.rc == 0
+      failed_when: false
+      tags: [podman]
+
+    - name: Add RHEL BaseOS repository
+      ansible.builtin.command:
+        cmd: >
+          dnf config-manager --add-repo
+          http://download.eng.rdu.redhat.com/released/rhel-{{ rhel_major_version }}/RHEL-{{ rhel_major_version }}/{{ rhel_version }}.0/BaseOS/aarch64/os/
+      register: baseos_repo_result
+      changed_when: baseos_repo_result.rc == 0
+      failed_when: false
+      tags: [podman]
+
     - name: Install podman
       ansible.builtin.dnf:
         name: podman
         state: present
+        disable_gpg_check: true
       tags: [podman]
     
     #=========================================================================
