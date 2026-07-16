@@ -120,8 +120,9 @@
     - name: Login to container registry
       ansible.builtin.command:
         cmd: podman login -u '{{ registry_user }}' -p '{{ registry_pass }}' {{ registry_url }}
-      no_log: true  # Don't log credentials
+      no_log: true
       changed_when: true
+      when: registry_user | default('') | length > 0 and registry_pass | default('') | length > 0
       tags: [registry]
     
     #=========================================================================
