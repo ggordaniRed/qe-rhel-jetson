@@ -138,9 +138,16 @@
     #=========================================================================
     # Step 5: Run bootc install to-existing-root
     #=========================================================================
+    - name: Unmount /boot/efi if mounted (must unmount before /boot)
+      ansible.builtin.command:
+        cmd: umount -l /boot/efi
+      failed_when: false
+      changed_when: false
+      tags: [install]
+
     - name: Unmount /boot if already mounted (leftover from previous run)
       ansible.builtin.command:
-        cmd: umount /boot
+        cmd: umount -l /boot
       failed_when: false
       changed_when: false
       tags: [install]
