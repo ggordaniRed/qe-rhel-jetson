@@ -162,6 +162,14 @@
     # Step 6: Set up boot restoration (restore original EFI order after timer)
     # Note: bootc team fixed boot entry handling; no manual EFI entry creation.
     #=========================================================================
+    - name: Ensure /etc/ostree directory exists
+      ansible.builtin.file:
+        path: /etc/ostree
+        state: directory
+        mode: '0755'
+      when: setup_boot_restore
+      tags: [restore]
+
     - name: Create boot restoration script
       ansible.builtin.copy:
         dest: /etc/ostree/restore_boot.sh
