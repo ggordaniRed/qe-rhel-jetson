@@ -15,7 +15,7 @@ _target_versions:
   "6.2.2":
     rhel_version: "9.8"
     l4t_version: "36.5.0"
-    uefi_firmware_version: "36.5.1"
+    uefi_firmware_version: "39.2.0"
     kernel_version: "5.14.0-687.12.1"
 
 # -----------------------------------------------------------------------------
