@@ -40,7 +40,7 @@ class TestDLA:
             "/workspace/tensorrt/bin/sample_onnx_mnist --useDLACore=0")
         cleanup_container_image(ssh, tag)
         if not spec.get("dla").get("supported"):
-          assert result.exit_status != 0, f"DLA test passed, but not supported (see jetson_hardware_specs.yaml)"
+          assert result.exit_status != 0, "DLA test passed, but not supported (see jetson_hardware_specs.yaml)"
         else:
           assert result.exit_status == 0, f"DLA test failed, RC not 0: {result.stderr}"
           assert ("[V] [TRT] [DlaLayer]" in result.stdout
@@ -57,7 +57,7 @@ class TestDLA:
         for core in range(cores):
             result = run_container(ssh, l4t_tensorrt_image,
                 f"/usr/src/tensorrt/bin/trtexec --onnx=/usr/src/tensorrt/data/resnet50/ResNet50.onnx "
-                f"--useDLACore={core} --allowGPUFallback --fp16")   
+                f"--useDLACore={core} --allowGPUFallback --fp16")
             assert result.exit_status == 0, f"TensorRT DLA core {core} failed: {result.stderr}"
 
     def test_l4t_trtexec_gpu(self, ssh, l4t_tensorrt_image):

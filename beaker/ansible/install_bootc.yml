@@ -141,11 +141,12 @@
           podman run --rm --privileged
           -v /dev:/dev
           -v /var/lib/containers:/var/lib/containers
-          -v /:/target
+          -v /root/.ssh/authorized_keys:/authorized_keys:ro
           --pid=host --security-opt label=type:unconfined_t
           {{ bootc_image }}
-          bootc install to-existing-root
-          --root-ssh-authorized-keys=/target/root/.ssh/authorized_keys
+          bootc install to-disk /dev/nvme0n1
+          --wipe
+          --root-ssh-authorized-keys=/authorized_keys
           --skip-fetch-check
       register: bootc_install
       async: 2400

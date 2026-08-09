@@ -5,7 +5,6 @@ Individual target version checks (RHEL, L4T, userspace, kernel, firmware, [excep
 are handled by session-level skip logic in conftest.py. These tests verify
 cross-component consistency that the skip logic doesn't cover. (along with checking kmod version)
 """
-import pytest
 from tests_resources.hardware_info import (
     get_all_jetpack_rpm_versions,
     compare_versions_gte,

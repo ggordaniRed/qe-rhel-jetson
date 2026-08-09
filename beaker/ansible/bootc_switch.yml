@@ -1,0 +1,158 @@
+---
+# Ansible Playbook: Switch bootc image on Jetson systems already running bootc
+#
+# Assumes the target is already booted into a bootc image.
+# Uses `bootc switch` to move to a different image, then reboots and verifies.
+#
+# Usage:
+#   # Switch to a specific image tag (credentials from vault):
+#   ansible-playbook -i inventory.yml bootc_switch.yml --ask-vault-pass \
+#     -e "bootc_image_tag=<new_tag>"
+#
+#   # Override the full image (base + tag):
+#   ansible-playbook -i inventory.yml bootc_switch.yml --ask-vault-pass \
+#     -e "bootc_image_base=registry.gitlab.com/redhat/rhel/sst/orin-sidecar/nvidia-jetson-sidecar/rhel-9.7" \
+#     -e "bootc_image_tag=<new_tag>"
+#
+#   # Skip registry login if image is already pulled / registry is unauthenticated:
+#   ansible-playbook -i inventory.yml bootc_switch.yml \
+#     -e "skip_registry_login=true" \
+#     -e "bootc_image_tag=<new_tag>"
+#
+#   # Target a specific host:
+#   ansible-playbook -i inventory.yml bootc_switch.yml --ask-vault-pass \
+#     -e "target_host=nvidia-jetson-agx-orin-03.khw.eng.bos2.dc.redhat.com" \
+#     -e "bootc_image_tag=<new_tag>"
+
+- name: Switch bootc image on Jetson systems
+  hosts: all
+  gather_facts: true
+  become: true
+
+  vars:
+    # bootc_image, registry_url, etc. come from inventory.yml
+    # Override with -e "bootc_image_tag=..." or -e "bootc_image_base=..."
+    auto_reboot: true
+    skip_registry_login: false
+
+  vars_files:
+    - vars/secrets.yml  # Contains registry_user and registry_pass (encrypted with ansible-vault)
+
+  pre_tasks:
+    - name: Validate registry credentials when login is required
+      ansible.builtin.assert:
+        that:
+          - registry_user is defined
+          - registry_pass is defined
+        fail_msg: "registry_user and registry_pass are required. Use --ask-vault-pass or -e 'registry_user=xxx registry_pass=xxx'"
+      when: not (skip_registry_login | bool)
+
+    - name: Display target information
+      ansible.builtin.debug:
+        msg: |
+          Target: {{ inventory_hostname }} ({{ ansible_host }})
+          New image: {{ bootc_image }}
+          OS:     {{ ansible_distribution | default('unknown') }} {{ ansible_distribution_version | default('') }}
+          Arch:   {{ ansible_architecture | default('unknown') }}
+
+  tasks:
+    #=========================================================================
+    # Step 1: Confirm system is running bootc
+    #=========================================================================
+    - name: Check current bootc status
+      ansible.builtin.command: bootc status
+      register: current_bootc_status
+      changed_when: false
+      failed_when: current_bootc_status.rc != 0
+      tags: [verify]
+
+    - name: Display current bootc status
+      ansible.builtin.debug:
+        var: current_bootc_status.stdout_lines
+      tags: [verify]
+
+    #=========================================================================
+    # Step 2: Login to container registry
+    #=========================================================================
+    - name: Login to container registry
+      ansible.builtin.command:
+        cmd: podman login -u '{{ registry_user }}' -p '{{ registry_pass }}' {{ registry_url }}
+      no_log: true
+      changed_when: true
+      when: not (skip_registry_login | bool)
+      tags: [registry]
+
+    #=========================================================================
+    # Step 3: Run bootc switch
+    #=========================================================================
+    - name: Switch to new bootc image
+      ansible.builtin.command:
+        cmd: bootc switch {{ bootc_image }}
+      register: bootc_switch_result
+      changed_when: "'Queued for next boot' in bootc_switch_result.stdout or bootc_switch_result.rc == 0"
+      tags: [switch]
+
+    - name: Display bootc switch output
+      ansible.builtin.debug:
+        var: bootc_switch_result.stdout_lines
+      tags: [switch]
+
+    #=========================================================================
+    # Step 4: Reboot to apply the new image
+    #=========================================================================
+    - name: Reboot to new bootc image
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        msg: "Rebooting to apply bootc switch to {{ bootc_image }}"
+      when: auto_reboot | bool
+      tags: [reboot]
+
+    #=========================================================================
+    # Step 5: Verify new image is active
+    #=========================================================================
+    - name: Wait for system to be accessible
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+      when: auto_reboot | bool
+      tags: [verify]
+
+    - name: Check bootc status after switch
+      ansible.builtin.command: bootc status
+      register: new_bootc_status
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Check rpm-ostree status
+      ansible.builtin.command: rpm-ostree status
+      register: rpm_ostree_status
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Check running kernel
+      ansible.builtin.command: uname -r
+      register: kernel_version
+      changed_when: false
+      tags: [verify]
+
+    - name: Verify expected image is booted
+      ansible.builtin.assert:
+        that:
+          - bootc_image_tag in new_bootc_status.stdout
+        fail_msg: "Expected image tag '{{ bootc_image_tag }}' not found in bootc status output"
+        success_msg: "Image tag '{{ bootc_image_tag }}' confirmed in bootc status"
+      when: auto_reboot | bool
+      tags: [verify]
+
+    - name: Display switch summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Bootc Switch Complete!
+          ========================================
+          Host:   {{ inventory_hostname }}
+          Kernel: {{ kernel_version.stdout }}
+          Image:  {{ bootc_image }}
+          ========================================
+      tags: [verify]

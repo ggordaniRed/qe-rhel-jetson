@@ -20,6 +20,16 @@
 #   ansible-playbook -i inventory.yml install_bootc.yml --ask-vault-pass \
 #     -e "bootc_image_base=registry.gitlab.com/redhat/rhel/sst/orin-sidecar/nvidia-jetson-sidecar/rhel-9.7"
 #
+# Usage (bootc switch — system already running bootc):
+#   # Switch to a new image tag (credentials from vault):
+#   ansible-playbook -i inventory.yml bootc_switch.yml --ask-vault-pass \
+#     -e "bootc_image_tag=<new_tag>"
+#
+#   # Skip registry login (public image or already authenticated):
+#   ansible-playbook -i inventory.yml bootc_switch.yml \
+#     -e "skip_registry_login=true" \
+#     -e "bootc_image_tag=<new_tag>"
+#
 # Usage (JetPack RPMs):
 #   # Basic usage with subscription credentials
 #   ansible-playbook -i inventory.yml install_jetpack_rpms.yml \
