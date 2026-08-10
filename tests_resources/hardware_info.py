@@ -119,11 +119,11 @@ def get_l4t_version(ssh) -> Optional[Union[float, str]]:
 
 
 def get_jetpack_userspace_version(ssh) -> Optional[str]:
-    """Return JetPack userspace RPM version (e.g. '6.2.2') from nvidia-jetpack-*-core RPM."""
+    """Return JetPack userspace RPM version (e.g. '6.2.2' or '7.2') from nvidia-jetpack-*-core RPM."""
     rpm_output = _run(ssh, "rpm -qa | grep 'nvidia-jetpack.*core'")
     if not rpm_output:
         return None
-    match = re.search(r"core-(\d+\.\d+\.\d+)", rpm_output)
+    match = re.search(r"core-(\d+\.\d+(?:\.\d+)?)", rpm_output)
     return match.group(1) if match else None
 
 
