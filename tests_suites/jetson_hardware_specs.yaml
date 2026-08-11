@@ -18,9 +18,11 @@ _target_versions:
     uefi_firmware_version:
       - "36.5.0"
       - "36.5.1"
+      - "36.5.2"
     kernel_version:
       - "5.14.0-687.10.1"
       - "5.14.0-687.12.1"
+      - "5.14.0-687.31.1"
 
   "7.2":
     rhel_version: "10.2"
