@@ -14,6 +14,7 @@ from tests_resources.container_ops import (
     build_container_image, run_container, cleanup_container_image,
     L4T_JETPACK_IMAGE,
 )
+import re as _re
 
 FILE = Path(os.path.realpath(__file__)).parent
 
@@ -53,6 +54,18 @@ class TestDLA:
         spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
         if not spec.get("dla").get("supported"):
             pytest.skip("DLA not supported on this hardware")
+        # Skip if the l4t-jetpack container L4T version doesn't match the host L4T version.
+        # TensorRT in an older l4t-jetpack image is incompatible with a newer host DLA driver
+        # (e.g., r36.4.0 container fails DLA engine build on an L4T 36.5.0 host).
+        # Override L4T_JETPACK_IMAGE env var when NVIDIA publishes a matching tag.
+        m = _re.search(r"r(\d+\.\d+\.\d+)", L4T_JETPACK_IMAGE)
+        container_l4t = m.group(1) if m else None
+        host_l4t = _conftest.L4T_VERSION
+        if container_l4t and host_l4t and container_l4t != str(host_l4t):
+            pytest.skip(
+                f"Skipping DLA trtexec: container L4T ({container_l4t}) != host L4T ({host_l4t}). "
+                f"Set L4T_JETPACK_IMAGE=nvcr.io/nvidia/l4t-jetpack:r{host_l4t} once NVIDIA publishes it."
+            )
         cores = spec.get("dla").get("cores")
         for core in range(cores):
             result = run_container(ssh, l4t_tensorrt_image,

@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 # RHEL/Podman GPU flags (CDI-based, replaces Docker's --runtime nvidia)
 PODMAN_GPU_FLAGS = "--device nvidia.com/gpu=all --group-add keep-groups --security-opt label=disable --net=host"
 
-# Configurable L4T image tag
+# Configurable L4T image tag.
+# r36.4.0 is the latest published tag for the r36 series on nvcr.io as of JetPack 6.2 (L4T 36.5.0).
+# NVIDIA has not yet published r36.5.0; override via L4T_JETPACK_IMAGE env var if a newer tag becomes available.
 L4T_JETPACK_IMAGE = os.getenv("L4T_JETPACK_IMAGE", "nvcr.io/nvidia/l4t-jetpack:r36.4.0")
 
 # Default building container image timeout in seconds (30 minutes)
