@@ -87,7 +87,10 @@ def get_tegra_release(ssh) -> str:
 def get_l4t_version(ssh) -> Optional[Union[float, str]]:
     """Return L4T version from /etc/nv_tegra_release (e.g. '36.5.0').
     Returns str for X.Y.Z, float for X.Y, or None."""
-    jetpack_raw = get_tegra_release(ssh).splitlines()[0]
+    lines = get_tegra_release(ssh).splitlines()
+    if not lines:
+        return None
+    jetpack_raw = lines[0]
     if not jetpack_raw:
         return None
 
