@@ -188,8 +188,6 @@
     </div>
     <div class="nav-tabs" id="nav-tabs">
       <a href="#rhel-9-7" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-tp">TP</span>RHEL 9.7</a>
-      <a href="#rhel-9-8" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-ga">GA</span>RHEL 9.8</a>
-      <a href="#rhel-10-2" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-dp">DP</span>RHEL 10.2</a>
 
     </div>
   </div>
@@ -215,8 +213,7 @@
         <h2 class="version-h2">RHEL 9.7 <span class="phase-full">Tech Preview</span></h2>
       </div>
       <div class="version-chips">
-        <span class="chip">UEFI 36.4.4</span>
-          <span class="chip">JetPack 6.2.2 L4T 36.5.0</span>
+        
       </div>
     </div>
 
@@ -227,166 +224,41 @@
       <span class="prow-hint">job history &amp; logs</span>
     </div>
 
-    <div class="prog-row"><span class="prog-label">36 / 38 verified</span><div class="prog-bar"><div class="prog-fill" style="width:95%"></div></div><span class="prog-pct">95%</span></div>
+    <div class="prog-row"><span class="prog-label">16 / 17 verified</span><div class="prog-bar"><div class="prog-fill" style="width:94%"></div></div><span class="prog-pct">94%</span></div>
 
     <div class="matrix-wrap">
       <table class="matrix">
         <thead>
           <tr>
             <th class="test-col-th">Test</th>
-            <th class="plat-header"><span class="plat-name">AGX Orin</span></th><th class="plat-header"><span class="plat-name">IGX Orin</span><span class=no-fw> no fw</span></th><th class="plat-header"><span class="plat-name">Orin NX</span></th><th class="plat-header"><span class="plat-name">Orin Nano</span></th>
+            <th class="plat-header"><span class="plat-name">AGX Orin</span></th>
           </tr>
         </thead>
         <tbody>
-          <tr class="group-row"><td class="group-label" colspan="5">Accelerators</td></tr>
-<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td></tr>
-<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported">N/S</span></td></tr>
-<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported">N/S</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Media</td></tr>
-<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">I/O</td></tr>
-<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td></tr>
-<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
-<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Network</td></tr>
-<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="version-section" id="rhel-9-8">
-    <div class="version-header">
-      <div class="version-title-row">
-        <span class="phase-badge phase-ga">GA</span>
-        <h2 class="version-h2">RHEL 9.8 <span class="phase-full">General Availability</span></h2>
-      </div>
-      <div class="version-chips">
-        <span class="chip">JetPack 6.2.2</span>
-          <span class="chip">L4T 36.5.0</span>
-          <span class="chip">UEFI 36.5.1</span>
-          <span class="chip">Secure Boot enabled</span>
-      </div>
-    </div>
-
-    <div class="prow-bar">
-      <span class="prow-label">Prow CI</span>
-      <a class="prow-link" href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest</a>
-      <span class="prow-sep">·</span>
-      <span class="prow-hint">job history &amp; logs</span>
-    </div>
-
-    <div class="prog-row"><span class="prog-label">0 / 56 verified</span><div class="prog-bar"><div class="prog-fill" style="width:0%"></div></div><span class="prog-pct">0%</span></div>
-
-    <div class="matrix-wrap">
-      <table class="matrix">
-        <thead>
-          <tr>
-            <th class="test-col-th">Test</th>
-            <th class="plat-header"><span class="plat-name">AGX Orin</span></th><th class="plat-header"><span class="plat-name">IGX Orin</span><span class=no-fw> no fw</span></th><th class="plat-header"><span class="plat-name">Orin NX</span></th><th class="plat-header"><span class="plat-name">Orin Nano</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr class="group-row"><td class="group-label" colspan="5">Boot & Security</td></tr>
-<tr class="test-row"><td class="test-name">Bootc switch</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">Secure Boot</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Accelerators</td></tr>
-<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported — No DLA backend available on Nano">N/S</span></td></tr>
-<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Media</td></tr>
-<tr class="test-row"><td class="test-name">VIC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
-<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">I/O</td></tr>
-<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
-<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Network</td></tr>
-<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">System</td></tr>
-<tr class="test-row"><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">Kernel Modules</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">RC/Stage build</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
-<tr class="test-row"><td class="test-name">Text-based display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">System</td></tr>
-<tr class="test-row"><td class="test-name">RTC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
-<tr class="test-row"><td class="test-name">GUI display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td></tr>
-
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="version-section" id="rhel-10-2">
-    <div class="version-header">
-      <div class="version-title-row">
-        <span class="phase-badge phase-dp">DP</span>
-        <h2 class="version-h2">RHEL 10.2 <span class="phase-full">Developer Preview</span></h2>
-      </div>
-      <div class="version-chips">
-        <span class="chip">JetPack 7.2</span>
-          <span class="chip">L4T 39.2.0</span>
-          <span class="chip">UEFI 39.2.0</span>
-          <span class="chip">Secure Boot enabled</span>
-      </div>
-    </div>
-
-    <div class="prow-bar">
-      <span class="prow-label">Prow CI</span>
-      <a class="prow-link" href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest</a>
-      <span class="prow-sep">·</span>
-      <span class="prow-hint">job history &amp; logs</span>
-    </div>
-
-    <div class="prog-row"><span class="prog-label">0 / 71 verified</span><div class="prog-bar"><div class="prog-fill" style="width:0%"></div></div><span class="prog-pct">0%</span></div>
-
-    <div class="matrix-wrap">
-      <table class="matrix">
-        <thead>
-          <tr>
-            <th class="test-col-th">Test</th>
-            <th class="plat-header"><span class="plat-name">AGX Orin</span></th><th class="plat-header"><span class="plat-name">IGX Orin</span><span class=no-fw> no fw</span></th><th class="plat-header"><span class="plat-name">Orin NX</span></th><th class="plat-header"><span class="plat-name">Orin Nano</span></th><th class="plat-header"><span class="plat-name">AGX Thor</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr class="group-row"><td class="group-label" colspan="6">Boot & Security</td></tr>
-<tr class="test-row"><td class="test-name">Bootc switch</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">Secure Boot</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">Accelerators</td></tr>
-<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported — No DLA backend available on Nano">N/S</span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td></tr>
-<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">Media</td></tr>
-<tr class="test-row"><td class="test-name">VIC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
-<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">I/O</td></tr>
-<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">Display</td></tr>
-<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">Network</td></tr>
-<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">System</td></tr>
-<tr class="test-row"><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">Kernel Modules</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="test-row"><td class="test-name">RC/Stage build</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">Display</td></tr>
-<tr class="test-row"><td class="test-name">Text-based display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Please proceed  Jetson enablement QE Planning"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">System</td></tr>
-<tr class="test-row"><td class="test-name">RTC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="6">Display</td></tr>
-<tr class="test-row"><td class="test-name">GUI display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+          <tr class="group-row"><td class="group-label" colspan="2">Boot & Security</td></tr>
+<tr class="test-row"><td class="test-name">Bootc switch</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">Accelerators</td></tr>
+<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">Media</td></tr>
+<tr class="test-row"><td class="test-name">VIC</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">I/O</td></tr>
+<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">SPI/I2C</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">Display</td></tr>
+<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">Network</td></tr>
+<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">System</td></tr>
+<tr class="test-row"><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">Kernel Modules</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">RC/Stage build</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">RTC</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
 
         </tbody>
       </table>
@@ -395,7 +267,7 @@
 
 
   <div class="footer">
-    Generated 2026-08-09 16:32 UTC &nbsp;·&nbsp;
+    Generated 2026-08-12 10:24 UTC &nbsp;·&nbsp;
     <a href="https://docs.google.com/spreadsheets/d/1GTRcrPsIDp8tRy0eq3CvVA6vRuEs7mzpGfXCik-FWg4" target="_blank">Source spreadsheet</a>
   </div>
 
