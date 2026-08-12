@@ -175,8 +175,8 @@ def prow_url(pr, job, build_id):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--job",       default=PROW_JOB)
-    ap.add_argument("--pr-limit",  type=int, default=5,  help="PRs to scan (newest first)")
-    ap.add_argument("--run-limit", type=int, default=3,  help="Builds per PR to scan")
+    ap.add_argument("--pr-limit",  type=int, default=10, help="PRs to scan (newest first)")
+    ap.add_argument("--run-limit", type=int, default=10, help="Builds per PR to scan")
     ap.add_argument("--output",    default="matrix_data/ci_results.json")
     args = ap.parse_args()
 
@@ -196,8 +196,12 @@ def main():
         if finished is None:
             print("    finished.json not found, skipping.")
             continue
-        if finished.get("result") not in ("SUCCESS", "FAILURE"):
-            print(f"    Still running ({finished.get('result')}), skipping.")
+        result = finished.get("result")
+        if result == "ABORTED":
+            print("    Aborted, skipping.")
+            continue
+        if result not in ("SUCCESS", "FAILURE"):
+            print(f"    Still running ({result}), skipping.")
             continue
 
         xml_bytes = fetch_junit(pr, args.job, build_id)
