@@ -380,11 +380,12 @@ def status_cell(status, note=""):
 def prow_link(text, url):
     return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
 
-def render_recent_runs(recent_runs):
+def render_recent_runs(recent_runs, max_shown=5):
     if not recent_runs:
         return ""
+    shown = recent_runs[:max_shown]
     rows = ""
-    for r in recent_runs:
+    for r in shown:
         cls  = "run-success" if r["conclusion"] == "success" else "run-failure"
         icon = "✓" if r["conclusion"] == "success" else "✗"
         date = r["concluded_at"][:10] if r["concluded_at"] else "—"
@@ -400,11 +401,14 @@ def render_recent_runs(recent_runs):
         )
     return f"""
     <details class="recent-runs">
-      <summary>Recent runs</summary>
+      <summary>Recent runs <span class="runs-count">({len(shown)} shown)</span></summary>
       <table class="runs-table">
         <thead><tr><th></th><th>Date</th><th>PR</th><th>Build</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
+      <div class="runs-footer">
+        <a href="{PROW_HISTORY_BASE}" target="_blank" rel="noopener">View all runs on Prow &rarr;</a>
+      </div>
     </details>"""
 
 
@@ -830,6 +834,13 @@ PAGE_TEMPLATE = """\
     .run-icon {{ font-weight: 700; text-align: center; width: 28px; }}
     .run-success {{ color: var(--c-verified); }}
     .run-failure {{ color: var(--c-failed); }}
+    .runs-count {{ font-weight: 400; color: var(--gray2); font-size: 11px; }}
+    .runs-footer {{
+      padding: 7px 12px; text-align: right;
+      border-top: 1px solid var(--gray3); background: #F9FAFB;
+    }}
+    .runs-footer a {{ font-size: 11.5px; color: #1D4ED8; text-decoration: none; font-weight: 600; }}
+    .runs-footer a:hover {{ text-decoration: underline; }}
 
     /* ── Footer ── */
     .footer {{
