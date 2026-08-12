@@ -20,13 +20,12 @@ from xml.etree import ElementTree
 
 PROW_JOB = "pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
 GCS_BASE  = "https://storage.googleapis.com/test-platform-results"
+GCS_API   = "https://storage.googleapis.com/storage/v1/b/test-platform-results/o"
+REPO_SLUG = "rh-ecosystem-edge_qe-rhel-jetson"
 
-# Job history index — Prow writes this for each job directory
-JOB_HISTORY_URL = (
-    f"{GCS_BASE}/pr-logs/directory/{PROW_JOB}/latest-build.txt"
-)
+# Artifact path — matches ci-operator step "as: pytest" + ref "qe-rhel-jetson-pytest"
+JUNIT_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/artifacts/junit.xml"
 
-# pytest classname (last segment) → KNOWN_TESTS name
 CLASS_TO_TEST = {
     "TestBootcSwitch":              "Bootc switch",
     "TestCUDA":                     "CUDA",
@@ -55,7 +54,7 @@ CLASS_TO_TEST = {
     "TestTimedatectl":              "RTC",
 }
 
-PLATFORM_FROM_ENV = {
+PLATFORM_FROM_HOSTNAME = {
     "nvidia-jetson-agx-orin-03.khw.eng.bos2.dc.redhat.com": "AGX Orin",
     "nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com": "AGX Orin",
     "nvidia-jetson-orin-nx-01.khw.eng.bos2.dc.redhat.com":  "Orin NX",
@@ -79,84 +78,68 @@ def fetch_json(url):
     return json.loads(fetch_text(url))
 
 
-def build_url(job, build_id):
-    return f"https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/directory/{job}/{build_id}"
+def gcs_list_prefixes(prefix):
+    url = f"{GCS_API}?prefix={prefix}&delimiter=/&maxResults=100"
+    data = fetch_json(url)
+    return [p.rstrip("/").split("/")[-1] for p in data.get("prefixes", [])]
 
 
-def gcs_build_prefix(job, build_id):
-    return f"{GCS_BASE}/pr-logs/directory/{job}/{build_id}"
+def pr_base(pr, job, build_id):
+    return f"{GCS_BASE}/pr-logs/pull/{REPO_SLUG}/{pr}/{job}/{build_id}"
 
 
-def fetch_build_ids(job, limit):
-    """Return the N most recent build IDs for a job via the Prow job history JSON."""
-    url = f"{GCS_BASE}/pr-logs/directory/{job}/jobResultsCache.json"
+def fetch_finished(pr, job, build_id):
     try:
-        data = fetch_json(url)
-        builds = data if isinstance(data, list) else data.get("builds", [])
-        ids = [str(b["buildID"]) for b in builds if "buildID" in b]
-        return ids[:limit]
-    except Exception:
-        pass
-
-    # Fallback: latest-build.txt gives only the single most recent ID
-    try:
-        latest = fetch_text(f"{GCS_BASE}/pr-logs/directory/{job}/latest-build.txt").strip()
-        return [latest]
-    except Exception:
-        return []
-
-
-def fetch_finished(job, build_id):
-    url = f"{gcs_build_prefix(job, build_id)}/finished.json"
-    try:
-        return fetch_json(url)
+        return fetch_json(f"{pr_base(pr, job, build_id)}/finished.json")
     except urllib.error.HTTPError:
         return None
 
 
-def fetch_junit(job, build_id):
-    """Try common artifact paths for junit.xml."""
-    candidates = [
-        f"{gcs_build_prefix(job, build_id)}/artifacts/{job}/junit.xml",
-        f"{gcs_build_prefix(job, build_id)}/artifacts/junit.xml",
-        f"{gcs_build_prefix(job, build_id)}/artifacts/{job}/qe-rhel-jetson-pytest/artifacts/junit.xml",
-    ]
-    for url in candidates:
-        try:
-            return fetch_bytes(url)
-        except urllib.error.HTTPError:
-            continue
-    return None
-
-
-def fetch_env_json(job, build_id):
-    """Read prowjob.json to extract JETSON_HOSTNAME from env."""
-    url = f"{gcs_build_prefix(job, build_id)}/prowjob.json"
+def fetch_junit(pr, job, build_id):
+    url = f"{pr_base(pr, job, build_id)}/{JUNIT_PATH}"
     try:
-        data = fetch_json(url)
+        return fetch_bytes(url)
+    except urllib.error.HTTPError:
+        return None
+
+
+def fetch_platform(pr, job, build_id):
+    """Extract JETSON_HOSTNAME from prowjob.json and map to platform name."""
+    import re
+    try:
+        data = fetch_json(f"{pr_base(pr, job, build_id)}/prowjob.json")
         envs = (data.get("spec", {})
                     .get("pod_spec", {})
                     .get("containers", [{}])[0]
                     .get("env", []))
-        return {e["name"]: e.get("value", "") for e in envs}
+        env_map = {e["name"]: e.get("value", "") for e in envs}
+        hostname = env_map.get("JETSON_HOSTNAME", "")
+        if hostname in PLATFORM_FROM_HOSTNAME:
+            return PLATFORM_FROM_HOSTNAME[hostname]
+        m = re.search(r"jetson-(agx-orin|igx-orin|orin-nx|orin-nano|agx-thor)", hostname, re.I)
+        if m:
+            return m.group(1).replace("-", " ").title()
     except Exception:
-        return {}
+        pass
+    return "AGX Orin"
 
 
-def platform_from_env(env):
-    hostname = env.get("JETSON_HOSTNAME", "")
-    if hostname in PLATFORM_FROM_ENV:
-        return PLATFORM_FROM_ENV[hostname]
-    # generic fallback: extract model from hostname
-    import re
-    m = re.search(r"jetson-(agx-orin|igx-orin|orin-nx|orin-nano|agx-thor)", hostname, re.I)
-    if m:
-        return m.group(1).replace("-", " ").title()
-    return "AGX Orin"  # default — current hardware
+def list_recent_builds(job, pr_limit=5, build_limit=3):
+    """Yield (pr, build_id) for recent builds, newest PRs first."""
+    try:
+        prs = gcs_list_prefixes(f"pr-logs/pull/{REPO_SLUG}/")
+    except Exception:
+        return
+    for pr in sorted(prs, key=lambda x: int(x) if x.isdigit() else 0, reverse=True)[:pr_limit]:
+        try:
+            builds = gcs_list_prefixes(f"pr-logs/pull/{REPO_SLUG}/{pr}/{job}/")
+        except Exception:
+            continue
+        for build_id in sorted(builds, reverse=True)[:build_limit]:
+            yield pr, build_id
 
 
 def parse_junit(xml_bytes):
-    """Return dict: test_name → 'verified' | 'failed' | 'not-started'."""
     root = ElementTree.fromstring(xml_bytes)
     aggregated = {}
     for tc in root.iter("testcase"):
@@ -184,40 +167,42 @@ def parse_junit(xml_bytes):
     return results
 
 
+def prow_url(pr, job, build_id):
+    return (f"https://prow.ci.openshift.org/view/gs/test-platform-results"
+            f"/pr-logs/pull/{REPO_SLUG}/{pr}/{job}/{build_id}")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--job",    default=PROW_JOB, help="Prow job name")
-    ap.add_argument("--runs",   type=int, default=10, help="Recent builds to scan")
-    ap.add_argument("--output", default="matrix_data/ci_results.json")
+    ap.add_argument("--job",       default=PROW_JOB)
+    ap.add_argument("--pr-limit",  type=int, default=5,  help="PRs to scan (newest first)")
+    ap.add_argument("--run-limit", type=int, default=3,  help="Builds per PR to scan")
+    ap.add_argument("--output",    default="matrix_data/ci_results.json")
     args = ap.parse_args()
 
     output_path = Path(args.output)
     existing = json.loads(output_path.read_text()) if output_path.exists() else {"runs": []}
     seen_ids = {r["build_id"] for r in existing.get("runs", [])}
 
-    print(f"Fetching build list for {args.job} ...")
-    build_ids = fetch_build_ids(args.job, args.runs)
-    if not build_ids:
-        print("No builds found.", file=sys.stderr)
-        sys.exit(1)
-
+    print(f"Scanning recent PRs for {args.job} ...")
     new_entries = []
-    for build_id in build_ids:
+
+    for pr, build_id in list_recent_builds(args.job, args.pr_limit, args.run_limit):
         if build_id in seen_ids:
             continue
 
-        print(f"  Build {build_id} — checking finished.json ...")
-        finished = fetch_finished(args.job, build_id)
+        print(f"  PR#{pr} build {build_id} — checking ...")
+        finished = fetch_finished(pr, args.job, build_id)
         if finished is None:
-            print("    Not finished yet, skipping.")
+            print("    finished.json not found, skipping.")
+            continue
+        if finished.get("result") not in ("SUCCESS", "FAILURE"):
+            print(f"    Still running ({finished.get('result')}), skipping.")
             continue
 
-        conclusion = "success" if finished.get("result") == "SUCCESS" else "failure"
-
-        print(f"    Result={finished.get('result')} — fetching junit ...")
-        xml_bytes = fetch_junit(args.job, build_id)
+        xml_bytes = fetch_junit(pr, args.job, build_id)
         if xml_bytes is None:
-            print("    No junit.xml found (job may predate this feature), skipping.")
+            print("    No junit.xml (pre-dates this feature), skipping.")
             continue
 
         results = parse_junit(xml_bytes)
@@ -225,33 +210,33 @@ def main():
             print("    JUnit parsed but no known tests found, skipping.")
             continue
 
-        env = fetch_env_json(args.job, build_id)
-        platform = platform_from_env(env)
-        timestamp = finished.get("timestamp", "")
+        platform = fetch_platform(pr, args.job, build_id)
+        ts = finished.get("timestamp", "")
         concluded_at = (
-            datetime.fromtimestamp(int(timestamp), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            if timestamp else ""
+            datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if ts else ""
         )
+        conclusion = "success" if finished.get("result") == "SUCCESS" else "failure"
 
         entry = {
             "build_id":     build_id,
-            "run_url":      build_url(args.job, build_id),
+            "pr":           pr,
+            "run_url":      prow_url(pr, args.job, build_id),
             "platform":     platform,
-            "rhel_version": None,  # Prow job config doesn't vary per RHEL version yet
+            "rhel_version": None,
             "concluded_at": concluded_at,
             "conclusion":   conclusion,
             "results":      results,
         }
         new_entries.append(entry)
-        print(f"    Platform={platform} tests={list(results)}")
+        print(f"    OK — platform={platform} conclusion={conclusion} tests={list(results)}")
 
     if not new_entries:
-        print("No new builds with junit results.")
+        print("No new builds with junit results found.")
         return
 
     existing["runs"] = new_entries + existing.get("runs", [])
     existing["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(existing, indent=2))
     print(f"\nWrote {output_path} ({len(existing['runs'])} total runs)")
