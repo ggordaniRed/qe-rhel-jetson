@@ -236,24 +236,62 @@ def parse_matrix(path):
 
 # ── CI results (from fetch_ci_data.py) ───────────────────────────────────────
 
-def load_ci_results(ci_json_path):
-    """Return dict: (rhel_version, platform) → {test_name: status}."""
+def load_ci_results(ci_json_path, default_version="9.7"):
+    """Return dict: (rhel_version, platform) → {test_name: status, _run_url: str}."""
     path = Path(ci_json_path)
     if not path.exists():
         return {}
     data = json.loads(path.read_text())
     out = {}
     for run in data.get("runs", []):
-        version  = run.get("rhel_version")
+        version  = run.get("rhel_version") or default_version
         platform = run.get("platform")
         results  = run.get("results", {})
-        if not version or not platform or not results:
+        if not platform or not results:
             continue
         key = (version, platform)
-        # Most-recent run wins (runs are newest-first)
         if key not in out:
             out[key] = {"results": results, "run_url": run.get("run_url", "")}
     return out
+
+
+# Ordered list of all known tests for CI-only rendering
+_TEST_ORDER = [
+    "Bootc switch", "Secure Boot",
+    "CUDA", "DLA", "PVA (VPI)", "VIC", "Multimedia",
+    "USBs", "PCIs", "CAN bus", "CSI camera", "SPI/I2C", "GPIO", "PWM",
+    "Display", "Text-based display", "GUI display",
+    "Ethernet", "Nvidia CLI tools", "Kernel Modules", "RC/Stage build", "RTC",
+]
+
+
+def build_data_from_ci(version, ci_map):
+    """Build a matrix data dict purely from CI results for a given version."""
+    platforms = sorted({p for (v, p) in ci_map if v == version})
+    if not platforms:
+        return None
+
+    # Pick run_url from any entry for this version (for the prow bar)
+    run_url = next(
+        (ci_map[(version, p)]["run_url"] for p in platforms if (version, p) in ci_map), ""
+    )
+
+    tests = []
+    for test_name in _TEST_ORDER:
+        results = []
+        has_data = False
+        for platform in platforms:
+            key = (version, platform)
+            status = ci_map.get(key, {}).get("results", {}).get(test_name)
+            if status:
+                results.append(status)
+                has_data = True
+            else:
+                results.append("na")
+        if has_data:
+            tests.append({"name": test_name, "results": results, "note": "", "ci_url": run_url})
+
+    return {"version_str": "", "platforms": platforms, "tests": tests}
 
 
 def apply_ci_results(data, version, ci_map):
@@ -702,17 +740,22 @@ def main():
 
     sections_html, nav_tabs_html = "", ""
     for version in ["9.7", "9.8", "10.2"]:
-        if version not in files:
+        if version in files:
+            path = files[version]
+            print(f"Parsing RHEL {version}: {path.name}")
+            data = parse_matrix(path)
+            if not data or not data["tests"]:
+                print("  Warning: no test data found, skipping.")
+                continue
+            if ci_map:
+                data = apply_ci_results(data, version, ci_map)
+        elif ci_map:
+            data = build_data_from_ci(version, ci_map)
+            if not data:
+                continue
+            print(f"RHEL {version}: CI-only ({len(data['platforms'])} platforms · {len(data['tests'])} tests)")
+        else:
             continue
-        path = files[version]
-        print(f"Parsing RHEL {version}: {path.name}")
-        data = parse_matrix(path)
-        if not data or not data["tests"]:
-            print("  Warning: no test data found, skipping.")
-            continue
-
-        if ci_map:
-            data = apply_ci_results(data, version, ci_map)
 
         print(f"  {len(data['platforms'])} platforms · {len(data['tests'])} tests")
 
