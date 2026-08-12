@@ -1,0 +1,33 @@
+{
+  "runs": [
+    {
+      "build_id": "2087474408540082176",
+      "pr": "42",
+      "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087474408540082176",
+      "platform": "AGX Orin",
+      "rhel_version": null,
+      "concluded_at": "2026-08-12T10:11:13Z",
+      "conclusion": "success",
+      "results": {
+        "Bootc switch": "not-started",
+        "CAN bus": "verified",
+        "CSI camera": "verified",
+        "CUDA": "verified",
+        "Display": "verified",
+        "DLA": "verified",
+        "Ethernet": "verified",
+        "Kernel Modules": "verified",
+        "Multimedia": "verified",
+        "PCIs": "verified",
+        "PVA (VPI)": "verified",
+        "RTC": "verified",
+        "RC/Stage build": "verified",
+        "SPI/I2C": "verified",
+        "Nvidia CLI tools": "verified",
+        "USBs": "verified",
+        "VIC": "verified"
+      }
+    }
+  ],
+  "fetched_at": "2026-08-12T10:24:18Z"
+}

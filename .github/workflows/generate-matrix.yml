@@ -1,0 +1,76 @@
+name: Generate Test Matrix Dashboard
+
+on:
+  push:
+    paths:
+      - "matrix_data/**"
+      - "scripts/generate_matrix.py"
+      - "scripts/fetch_ci_data.py"
+  workflow_run:
+    workflows: ["Beaker Jetson Testing"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch CI results from Prow/GCS
+        run: |
+          python scripts/fetch_ci_data.py \
+            --output matrix_data/ci_results.json
+        continue-on-error: true
+
+      - name: Generate dashboard
+        run: |
+          python scripts/generate_matrix.py \
+            --input matrix_data \
+            --output docs/jetson_test_matrix.html \
+            --ci-results matrix_data/ci_results.json
+
+      - name: Commit updated dashboard
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/jetson_test_matrix.html
+          [ -f matrix_data/ci_results.json ] && git add matrix_data/ci_results.json || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: regenerate test matrix dashboard [skip ci]"
+            git push
+          fi
+
+  # Optional: publish to GitHub Pages (enable Pages in repo settings first)
+  deploy-pages:
+    needs: generate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main  # pick up the commit from the generate job
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
