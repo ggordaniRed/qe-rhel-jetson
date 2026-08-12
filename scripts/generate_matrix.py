@@ -697,8 +697,8 @@ def main():
 
     files = discover_files(input_dir)
     if not files and not ci_map:
-        print(f"Error: no matching HTML files found in '{input_dir}' and no CI results.", file=sys.stderr)
-        sys.exit(1)
+        print(f"No HTML files in '{input_dir}' and no CI results yet — nothing to generate.")
+        sys.exit(0)
 
     sections_html, nav_tabs_html = "", ""
     for version in ["9.7", "9.8", "10.2"]:
