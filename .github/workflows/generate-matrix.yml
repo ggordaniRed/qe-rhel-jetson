@@ -45,7 +45,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/jetson_test_matrix.html
-          git add --ignore-unmatch matrix_data/ci_results.json
+          [ -f matrix_data/ci_results.json ] && git add matrix_data/ci_results.json || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
