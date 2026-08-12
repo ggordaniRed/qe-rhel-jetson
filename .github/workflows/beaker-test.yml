@@ -328,13 +328,14 @@ jobs:
           
           # Build pytest command
           PYTEST_CMD="pytest tests_suites/ -v --tb=short --timeout=600"
-          
+
           if [ -n "$MARKERS" ]; then
             PYTEST_CMD="$PYTEST_CMD -m '$MARKERS'"
           fi
-          
-          # Add HTML report
+
+          # Add reports
           PYTEST_CMD="$PYTEST_CMD --html=test-report.html --self-contained-html"
+          PYTEST_CMD="$PYTEST_CMD --junit-xml=junit.xml"
           
           echo "   Command: $PYTEST_CMD"
           eval $PYTEST_CMD
@@ -347,6 +348,15 @@ jobs:
           name: test-report
           path: test-report.html
           retention-days: 30
+
+      - name: Upload JUnit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-results
+          path: junit.xml
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Upload test logs
         uses: actions/upload-artifact@v4

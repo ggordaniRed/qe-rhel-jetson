@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jetson QE Test Matrix</title>
+  <style>
+    :root {
+      --rh-red:   #CC0000;
+      --dark:     #111;
+      --dark2:    #1E1E1E;
+      --gray1:    #3C3F42;
+      --gray2:    #6A6E73;
+      --gray3:    #D2D2D2;
+      --bg:       #F7F7F7;
+      --surface:  #FFFFFF;
+
+      --c-verified:      #1A7F37;
+      --c-failed:        #B91C1C;
+      --c-not-started:   #9CA3AF;
+      --c-not-supported: #D97706;
+      --c-in-progress:   #2563EB;
+      --c-na:            #CBD5E1;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Red Hat Display', 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: #1a1a1a; }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--dark);
+      border-bottom: 3px solid var(--rh-red);
+      box-shadow: 0 2px 12px rgba(0,0,0,.5);
+    }
+    .nav-inner {
+      max-width: 1200px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; gap: 0;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: 10px;
+      color: #fff; font-size: 14px; font-weight: 700;
+      padding: 14px 24px 14px 0;
+      border-right: 1px solid rgba(255,255,255,.12);
+      white-space: nowrap;
+    }
+    .rh-hat { display: none; }
+    .nav-tabs { display: flex; padding: 0 0 0 20px; gap: 2px; overflow-x: auto; }
+    .nav-tab {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 18px; border-radius: 6px;
+      color: rgba(255,255,255,.65); text-decoration: none;
+      font-size: 13px; font-weight: 500; white-space: nowrap;
+      transition: all .15s; border: 1px solid transparent;
+      margin: 8px 0;
+    }
+    .nav-tab:hover { color: #fff; background: rgba(255,255,255,.08); }
+    .nav-tab.active { color: #fff; background: var(--rh-red); border-color: var(--rh-red); }
+
+    /* ── Phase badges ── */
+    .phase-badge {
+      font-size: 10px; font-weight: 800; padding: 2px 7px;
+      border-radius: 4px; letter-spacing: .6px; line-height: 1.5;
+    }
+    .phase-tp { background: #7C3AED; color: #fff; }
+    .phase-ga { background: #059669; color: #fff; }
+    .phase-dp { background: #D97706; color: #fff; }
+
+    /* ── Page ── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 32px 24px 80px; }
+
+    /* ── Legend ── */
+    .legend {
+      display: flex; gap: 20px; flex-wrap: wrap;
+      padding: 12px 18px; background: var(--surface);
+      border: 1px solid var(--gray3); border-radius: 8px;
+      margin-bottom: 36px; align-items: center;
+    }
+    .legend-title { font-size: 11px; font-weight: 700; color: var(--gray2); text-transform: uppercase; letter-spacing: .5px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }
+
+    /* ── Version section ── */
+    .version-section { margin-bottom: 52px; scroll-margin-top: 76px; }
+    .version-header { margin-bottom: 16px; }
+    .version-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .version-h2 { font-size: 20px; font-weight: 700; color: var(--dark); }
+    .phase-full { font-weight: 400; color: var(--gray2); font-size: 16px; }
+    .version-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip {
+      background: var(--surface); border: 1px solid var(--gray3);
+      border-radius: 20px; padding: 3px 12px;
+      font-size: 12px; color: var(--gray2);
+    }
+
+    /* ── Prow bar ── */
+    .prow-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: #F0F4FF; border: 1px solid #C7D7FD;
+      border-radius: 8px; padding: 9px 14px; margin-bottom: 14px;
+      font-size: 12.5px; flex-wrap: wrap;
+    }
+    .prow-label { font-weight: 700; color: #1D4ED8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+    .prow-link { color: #1D4ED8; font-weight: 600; text-decoration: none; }
+    .prow-link:hover { text-decoration: underline; }
+    .prow-sep { color: var(--gray3); }
+    .prow-hint { color: var(--gray2); font-size: 11.5px; }
+
+    /* ── Progress ── */
+    .prog-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 16px; font-size: 13px;
+    }
+    .prog-label { color: var(--gray2); min-width: 110px; }
+    .prog-bar {
+      flex: 1; max-width: 280px; height: 6px;
+      background: #E5E7EB; border-radius: 4px; overflow: hidden;
+    }
+    .prog-fill { height: 100%; background: var(--c-verified); border-radius: 4px; transition: width .3s; }
+    .prog-pct { font-weight: 700; color: var(--c-verified); font-size: 12px; min-width: 36px; }
+
+    /* ── Matrix table ── */
+    .matrix-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--gray3); background: var(--surface); }
+    table.matrix { border-collapse: collapse; width: 100%; min-width: 500px; font-size: 13px; }
+
+    .matrix thead th {
+      background: var(--dark2); color: #fff;
+      padding: 11px 16px; font-weight: 600; font-size: 12px;
+      text-align: center; border-right: 1px solid rgba(255,255,255,.07);
+    }
+    .matrix thead th.test-col-th { text-align: left; min-width: 160px; }
+    .plat-name { display: block; }
+    .no-fw { font-size: 10px; color: rgba(255,255,255,.4); font-weight: 400; }
+
+    .group-row td.group-label {
+      background: #F3F4F6; color: var(--gray2);
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; padding: 5px 16px;
+      border-top: 1px solid var(--gray3);
+      border-bottom: 1px solid var(--gray3);
+    }
+
+    .test-row { border-bottom: 1px solid #F0F0F0; transition: background .1s; }
+    .test-row:hover { background: #FAFAFA; }
+    .test-row:last-child { border-bottom: none; }
+
+    td.test-name {
+      padding: 9px 16px; font-weight: 500; color: #222;
+      border-right: 1px solid var(--gray3); white-space: nowrap;
+    }
+    .test-icon { margin-right: 7px; font-size: 14px; opacity: .75; }
+
+    td.result-cell { padding: 8px 12px; text-align: center; border-right: 1px solid #F0F0F0; }
+    td.result-cell:last-child { border-right: none; }
+
+    /* ── Status indicators ── */
+    .dot {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 36px; height: 22px; border-radius: 4px;
+      padding: 0 6px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: .3px;
+      cursor: default; font-family: 'Red Hat Mono', 'Roboto Mono', monospace;
+    }
+    .dot-verified      { background: #DCFCE7; color: #166534; border: 1px solid #BBF7D0; }
+    .dot-failed        { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .dot-not-started   { background: #F3F4F6; color: #9CA3AF; border: 1px solid #E5E7EB; }
+    .dot-not-supported { background: #FEF9C3; color: #854D0E; border: 1px solid #FDE047; }
+    .dot-in-progress   { background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }
+    .dot-na            { background: transparent; color: #D1D5DB; border: 1px solid transparent; font-size: 14px; }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center; font-size: 11px; color: var(--gray2);
+      padding: 20px; border-top: 1px solid var(--gray3); margin-top: 20px;
+    }
+    .footer a { color: var(--gray2); }
+
+    @media (max-width: 640px) {
+      .page { padding: 16px 12px 48px; }
+      .nav-brand { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      Jetson QE Test Matrix
+    </div>
+    <div class="nav-tabs" id="nav-tabs">
+      <a href="#rhel-9-7" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-tp">TP</span>RHEL 9.7</a>
+      <a href="#rhel-9-8" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-ga">GA</span>RHEL 9.8</a>
+      <a href="#rhel-10-2" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-dp">DP</span>RHEL 10.2</a>
+
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+
+  <div class="legend">
+    <span class="legend-title">Legend</span>
+    <span class="legend-item"><span class="dot dot-verified">P</span> Verified</span>
+    <span class="legend-item"><span class="dot dot-not-started">–</span> Not Started</span>
+    <span class="legend-item"><span class="dot dot-not-supported">N/S</span> Not Supported</span>
+    <span class="legend-item"><span class="dot dot-failed">F</span> Failed</span>
+    <span class="legend-item"><span class="dot dot-in-progress">WIP</span> In Progress</span>
+    <span class="legend-item"><span class="dot dot-na">·</span> N/A</span>
+  </div>
+
+
+  <section class="version-section" id="rhel-9-7">
+    <div class="version-header">
+      <div class="version-title-row">
+        <span class="phase-badge phase-tp">TP</span>
+        <h2 class="version-h2">RHEL 9.7 <span class="phase-full">Tech Preview</span></h2>
+      </div>
+      <div class="version-chips">
+        <span class="chip">UEFI 36.4.4</span>
+          <span class="chip">JetPack 6.2.2 L4T 36.5.0</span>
+      </div>
+    </div>
+
+    <div class="prow-bar">
+      <span class="prow-label">Prow CI</span>
+      <a class="prow-link" href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest</a>
+      <span class="prow-sep">·</span>
+      <span class="prow-hint">job history &amp; logs</span>
+    </div>
+
+    <div class="prog-row"><span class="prog-label">36 / 38 verified</span><div class="prog-bar"><div class="prog-fill" style="width:95%"></div></div><span class="prog-pct">95%</span></div>
+
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="test-col-th">Test</th>
+            <th class="plat-header"><span class="plat-name">AGX Orin</span></th><th class="plat-header"><span class="plat-name">IGX Orin</span><span class=no-fw> no fw</span></th><th class="plat-header"><span class="plat-name">Orin NX</span></th><th class="plat-header"><span class="plat-name">Orin Nano</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group-row"><td class="group-label" colspan="5">Accelerators</td></tr>
+<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — building pytorch container for CUDA on Jumpstarter takes 50 min~ the differences are:1. missing rsync and xorg-x11-server-Xorg packages2. no password for root user">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported">N/S</span></td></tr>
+<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported">N/S</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Media</td></tr>
+<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — Only Decoder available on Nano">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">I/O</td></tr>
+<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — CAN controller is part of Jetson SOC, so it will appear in all the models.-> In the furue for E2E CAN bus -> Check on CTI board (with physical CAN bus ports)-> for Basic funtionality, I'll keep "ip link show type can" test and try loopback mode (for CAN controller testing)">Pass</span></td></tr>
+<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified — JETPACK-98">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
+<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Network</td></tr>
+<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="version-section" id="rhel-9-8">
+    <div class="version-header">
+      <div class="version-title-row">
+        <span class="phase-badge phase-ga">GA</span>
+        <h2 class="version-h2">RHEL 9.8 <span class="phase-full">General Availability</span></h2>
+      </div>
+      <div class="version-chips">
+        <span class="chip">JetPack 6.2.2</span>
+          <span class="chip">L4T 36.5.0</span>
+          <span class="chip">UEFI 36.5.1</span>
+          <span class="chip">Secure Boot enabled</span>
+      </div>
+    </div>
+
+    <div class="prow-bar">
+      <span class="prow-label">Prow CI</span>
+      <a class="prow-link" href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest</a>
+      <span class="prow-sep">·</span>
+      <span class="prow-hint">job history &amp; logs</span>
+    </div>
+
+    <div class="prog-row"><span class="prog-label">0 / 56 verified</span><div class="prog-bar"><div class="prog-fill" style="width:0%"></div></div><span class="prog-pct">0%</span></div>
+
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="test-col-th">Test</th>
+            <th class="plat-header"><span class="plat-name">AGX Orin</span></th><th class="plat-header"><span class="plat-name">IGX Orin</span><span class=no-fw> no fw</span></th><th class="plat-header"><span class="plat-name">Orin NX</span></th><th class="plat-header"><span class="plat-name">Orin Nano</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group-row"><td class="group-label" colspan="5">Boot & Security</td></tr>
+<tr class="test-row"><td class="test-name">Bootc switch</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">Secure Boot</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Accelerators</td></tr>
+<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported — No DLA backend available on Nano">N/S</span></td></tr>
+<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Media</td></tr>
+<tr class="test-row"><td class="test-name">VIC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
+<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">I/O</td></tr>
+<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
+<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Network</td></tr>
+<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">System</td></tr>
+<tr class="test-row"><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">Kernel Modules</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">RC/Stage build</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
+<tr class="test-row"><td class="test-name">Text-based display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — tested on 36.5.1 and 36.5.0,Please proceed  Jetson enablement QE Planning"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">System</td></tr>
+<tr class="test-row"><td class="test-name">RTC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="5">Display</td></tr>
+<tr class="test-row"><td class="test-name">GUI display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td></tr>
+
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="version-section" id="rhel-10-2">
+    <div class="version-header">
+      <div class="version-title-row">
+        <span class="phase-badge phase-dp">DP</span>
+        <h2 class="version-h2">RHEL 10.2 <span class="phase-full">Developer Preview</span></h2>
+      </div>
+      <div class="version-chips">
+        <span class="chip">JetPack 7.2</span>
+          <span class="chip">L4T 39.2.0</span>
+          <span class="chip">UEFI 39.2.0</span>
+          <span class="chip">Secure Boot enabled</span>
+      </div>
+    </div>
+
+    <div class="prow-bar">
+      <span class="prow-label">Prow CI</span>
+      <a class="prow-link" href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest</a>
+      <span class="prow-sep">·</span>
+      <span class="prow-hint">job history &amp; logs</span>
+    </div>
+
+    <div class="prog-row"><span class="prog-label">0 / 71 verified</span><div class="prog-bar"><div class="prog-fill" style="width:0%"></div></div><span class="prog-pct">0%</span></div>
+
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="test-col-th">Test</th>
+            <th class="plat-header"><span class="plat-name">AGX Orin</span></th><th class="plat-header"><span class="plat-name">IGX Orin</span><span class=no-fw> no fw</span></th><th class="plat-header"><span class="plat-name">Orin NX</span></th><th class="plat-header"><span class="plat-name">Orin Nano</span></th><th class="plat-header"><span class="plat-name">AGX Thor</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group-row"><td class="group-label" colspan="6">Boot & Security</td></tr>
+<tr class="test-row"><td class="test-name">Bootc switch</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">Secure Boot</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">Accelerators</td></tr>
+<tr class="test-row"><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-supported" title="Not Supported — No DLA backend available on Nano">N/S</span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No DLA backend available on Nano"></span></td></tr>
+<tr class="test-row"><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — No PVA backend available on Nano"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">Media</td></tr>
+<tr class="test-row"><td class="test-name">VIC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
+<tr class="test-row"><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Only Decoder available on Nano"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">I/O</td></tr>
+<tr class="test-row"><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">Display</td></tr>
+<tr class="test-row"><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">Network</td></tr>
+<tr class="test-row"><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">System</td></tr>
+<tr class="test-row"><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">Kernel Modules</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="test-row"><td class="test-name">RC/Stage build</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">Display</td></tr>
+<tr class="test-row"><td class="test-name">Text-based display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A — Please proceed  Jetson enablement QE Planning"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started — Please proceed  Jetson enablement QE Planning"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">System</td></tr>
+<tr class="test-row"><td class="test-name">RTC</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+<tr class="group-row"><td class="group-label" colspan="6">Display</td></tr>
+<tr class="test-row"><td class="test-name">GUI display</td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-not-started" title="Not Started"></span></td></tr>
+
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+
+  <div class="footer">
+    Generated 2026-08-09 16:32 UTC &nbsp;·&nbsp;
+    <a href="https://docs.google.com/spreadsheets/d/1GTRcrPsIDp8tRy0eq3CvVA6vRuEs7mzpGfXCik-FWg4" target="_blank">Source spreadsheet</a>
+  </div>
+
+</div>
+
+<script>
+  // Highlight active tab on scroll
+  const sections = document.querySelectorAll('.version-section');
+  const tabs = document.querySelectorAll('.nav-tab');
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        tabs.forEach(t => t.classList.toggle('active', t.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => io.observe(s));
+
+  function activateTab(el) {
+    tabs.forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+</script>
+</body>
+</html>
