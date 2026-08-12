@@ -237,12 +237,14 @@ def parse_matrix(path):
 # ── CI results (from fetch_ci_data.py) ───────────────────────────────────────
 
 def load_ci_results(ci_json_path, default_version="9.7"):
-    """Return dict: (rhel_version, platform) → {test_name: status, _run_url: str}."""
+    """Return dict: (rhel_version, platform) → {results, run_url, system_info, recent_runs}."""
     path = Path(ci_json_path)
     if not path.exists():
         return {}
     data = json.loads(path.read_text())
     out = {}
+    # Track recent runs per (version, platform) for the history table
+    recent = {}
     for run in data.get("runs", []):
         version  = run.get("rhel_version") or default_version
         platform = run.get("platform")
@@ -250,8 +252,21 @@ def load_ci_results(ci_json_path, default_version="9.7"):
         if not platform or not results:
             continue
         key = (version, platform)
+        recent.setdefault(key, []).append({
+            "build_id":    run.get("build_id", ""),
+            "pr":          run.get("pr", ""),
+            "run_url":     run.get("run_url", ""),
+            "conclusion":  run.get("conclusion", ""),
+            "concluded_at":run.get("concluded_at", ""),
+        })
         if key not in out:
-            out[key] = {"results": results, "run_url": run.get("run_url", "")}
+            out[key] = {
+                "results":     results,
+                "run_url":     run.get("run_url", ""),
+                "system_info": run.get("system_info", {}),
+            }
+    for key in out:
+        out[key]["recent_runs"] = recent.get(key, [])[:5]
     return out
 
 
@@ -271,10 +286,14 @@ def build_data_from_ci(version, ci_map):
     if not platforms:
         return None
 
-    # Pick run_url from any entry for this version (for the prow bar)
-    run_url = next(
-        (ci_map[(version, p)]["run_url"] for p in platforms if (version, p) in ci_map), ""
-    )
+    per_platform = {
+        p: {
+            "system_info": ci_map.get((version, p), {}).get("system_info", {}),
+            "recent_runs": ci_map.get((version, p), {}).get("recent_runs", []),
+            "run_url":     ci_map.get((version, p), {}).get("run_url", ""),
+        }
+        for p in platforms
+    }
 
     tests = []
     for test_name in _TEST_ORDER:
@@ -289,9 +308,14 @@ def build_data_from_ci(version, ci_map):
             else:
                 results.append("na")
         if has_data:
-            tests.append({"name": test_name, "results": results, "note": "", "ci_url": run_url})
+            tests.append({"name": test_name, "results": results, "note": ""})
 
-    return {"version_str": "", "platforms": platforms, "tests": tests}
+    return {
+        "version_str": "",
+        "platforms":   platforms,
+        "tests":       tests,
+        "per_platform": per_platform,
+    }
 
 
 def apply_ci_results(data, version, ci_map):
@@ -356,78 +380,206 @@ def status_cell(status, note=""):
 def prow_link(text, url):
     return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
 
-def render_section(version, data, generated_at):
-    meta       = VERSION_META.get(version, {"phase": "?", "phase_label": "", "phase_css": "tp"})
-    phase      = meta["phase"]
-    phase_lbl  = meta["phase_label"]
-    phase_css  = meta["phase_css"]
-    vid        = f"rhel-{version.replace('.', '-')}"
-    platforms  = data["platforms"]
-    tests      = data["tests"]
+def render_recent_runs(recent_runs, max_shown=5):
+    if not recent_runs:
+        return ""
+    shown = recent_runs[:max_shown]
+    rows = ""
+    for r in shown:
+        cls  = "run-success" if r["conclusion"] == "success" else "run-failure"
+        icon = "✓" if r["conclusion"] == "success" else "✗"
+        date = r["concluded_at"][:10] if r["concluded_at"] else "—"
+        pr   = f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{r["pr"]}" target="_blank">PR#{r["pr"]}</a>' if r["pr"] else "—"
+        rows += (
+            f'<tr class="run-row">'
+            f'<td class="run-icon {cls}">{icon}</td>'
+            f'<td>{date}</td>'
+            f'<td>{pr}</td>'
+            f'<td><a class="prow-link" href="{r["run_url"]}" target="_blank" rel="noopener">'
+            f'{r["build_id"][-8:]}</a></td>'
+            f'</tr>\n'
+        )
+    return f"""
+    <details class="recent-runs">
+      <summary>Recent runs <span class="runs-count">({len(shown)} shown)</span></summary>
+      <table class="runs-table">
+        <thead><tr><th></th><th>Date</th><th>PR</th><th>Build</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+      <div class="runs-footer">
+        <a href="{PROW_HISTORY_BASE}" target="_blank" rel="noopener">View all runs on Prow &rarr;</a>
+      </div>
+    </details>"""
 
-    # Version metadata chips from the version string
-    chips = []
-    for part in data["version_str"].split("|"):
-        part = part.strip()
-        if part and not re.match(r"RHEL\s+\d", part, re.I):
-            chips.append(f'<span class="chip">{part}</span>')
-    chips_html = "\n          ".join(chips)
 
-    # Progress
-    total = v = ns = f = ip = 0
+def _progress_html(tests, plat_idx):
+    total = v = 0
     for t in tests:
-        for s in t["results"]:
-            if s in ("na", "not-supported"):
-                continue
-            total += 1
-            if s == "verified":     v  += 1
-            elif s == "failed":     f  += 1
-            elif s == "in-progress":ip += 1
-            else:                   ns += 1
-
+        s = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
+        if s in ("na", "not-supported"):
+            continue
+        total += 1
+        if s == "verified":
+            v += 1
     pct = round(v / total * 100) if total else 0
-    progress_html = (
+    return (
         f'<div class="prog-row">'
         f'<span class="prog-label">{v} / {total} verified</span>'
         f'<div class="prog-bar"><div class="prog-fill" style="width:{pct}%"></div></div>'
         f'<span class="prog-pct">{pct}%</span>'
         f'</div>'
-    )
+    ), v, total
 
-    # Platform header row
-    plat_headers = "".join(
-        f'<th class="plat-header">'
-        f'<span class="plat-name">{p}</span>'
-        f'{"<span class=no-fw> no fw</span>" if "IGX" in p else ""}'
-        f'</th>'
-        for p in platforms
-    )
 
-    # Test rows grouped
+def _chips_from_si(si):
+    chips = []
+    hw = si.get("hardware_model", "")
+    if hw:
+        chips.append(f'<span class="chip chip-hw">{hw}</span>')
+    for label, key in [
+        ("Kernel", "kernel_version"),
+        ("L4T",    "l4t_version"),
+        ("JetPack","jetpack_version"),
+        ("Firmware","firmware"),
+        ("Secure Boot","secure_boot"),
+    ]:
+        val = si.get(key, "")
+        if val:
+            chips.append(f'<span class="chip"><span class="chip-label">{label}</span> {val}</span>')
+    return chips
+
+
+def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
+    si          = per_plat.get("system_info", {})
+    recent_runs = per_plat.get("recent_runs", [])
+
+    chips = _chips_from_si(si)
+    chips_html = "\n        ".join(chips)
+
+    prog_html, v, total = _progress_html(tests, plat_idx)
+
+    pct = round(v / total * 100) if total else 0
+    mini = f'<span class="plat-mini-prog {"ok" if pct == 100 else ("warn" if pct >= 50 else "fail")}">{v}/{total}</span>'
+
     tbody = ""
     last_group = None
     for t in tests:
-        name   = t["name"]
-        group  = TEST_GROUPS.get(name, "Other")
-        icon   = TEST_ICONS.get(name, "")
-        note   = t["note"]
-
+        name  = t["name"]
+        group = TEST_GROUPS.get(name, "Other")
+        note  = t["note"]
+        s     = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
         if group != last_group:
             last_group = group
-            empty_cells = "".join(f'<td></td>' for _ in platforms)
-            tbody += f'<tr class="group-row"><td class="group-label" colspan="{1 + len(platforms)}">{group}</td></tr>\n'
-
-        cells = "".join(status_cell(s, note) for s in t["results"])
-        cells_td = "".join(
-            f'<td class="result-cell">{status_cell(t["results"][i], note)}</td>'
-            for i in range(len(platforms))
-        )
+            tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
         tbody += (
             f'<tr class="test-row">'
             f'<td class="test-name">{name}</td>'
-            f'{cells_td}'
+            f'<td class="result-cell">{status_cell(s, note)}</td>'
             f'</tr>\n'
         )
+
+    no_fw = '<span class="no-fw"> no fw</span>' if "IGX" in platform else ""
+
+    return f"""
+    <details class="platform-block" {open_attr}>
+      <summary class="platform-summary">
+        <span class="plat-summary-name">{platform}{no_fw}</span>
+        {mini}
+        <span class="plat-toggle"></span>
+      </summary>
+      <div class="platform-body">
+        {"<div class='platform-chips'>" + chips_html + "</div>" if chips else ""}
+        {prog_html}
+        <div class="matrix-wrap">
+          <table class="matrix">
+            <thead><tr>
+              <th class="test-col-th">Test</th>
+              <th>Result</th>
+            </tr></thead>
+            <tbody>
+              {tbody}
+            </tbody>
+          </table>
+        </div>
+        {render_recent_runs(recent_runs)}
+      </div>
+    </details>"""
+
+
+def render_section(version, data, generated_at):
+    meta      = VERSION_META.get(version, {"phase": "?", "phase_label": "", "phase_css": "tp"})
+    phase     = meta["phase"]
+    phase_lbl = meta["phase_label"]
+    phase_css = meta["phase_css"]
+    vid       = f"rhel-{version.replace('.', '-')}"
+    platforms = data["platforms"]
+    tests     = data["tests"]
+    per_platform = data.get("per_platform", {})
+
+    # Overall version-level chips — use first platform's si, or version_str from sheet
+    first_si = per_platform.get(platforms[0], {}).get("system_info", {}) if per_platform else data.get("system_info", {})
+    if first_si:
+        chips_html = "\n          ".join(_chips_from_si(first_si))
+    else:
+        chips_html = "\n          ".join(
+            f'<span class="chip">{p.strip()}</span>'
+            for p in data.get("version_str", "").split("|")
+            if p.strip() and not re.match(r"RHEL\s+\d", p.strip(), re.I)
+        )
+
+    # Overall progress across all platforms
+    total_v = total_t = 0
+    for plat_idx in range(len(platforms)):
+        _, v, t = _progress_html(tests, plat_idx)
+        total_v += v
+        total_t += t
+    overall_pct = round(total_v / total_t * 100) if total_t else 0
+    overall_prog = (
+        f'<div class="prog-row">'
+        f'<span class="prog-label">{total_v} / {total_t} verified</span>'
+        f'<div class="prog-bar"><div class="prog-fill" style="width:{overall_pct}%"></div></div>'
+        f'<span class="prog-pct">{overall_pct}%</span>'
+        f'</div>'
+    )
+
+    # Per-platform collapsible blocks (first one open by default)
+    if per_platform:
+        platform_blocks = ""
+        for i, plat in enumerate(platforms):
+            open_attr = "open" if i == 0 else ""
+            platform_blocks += _platform_block(
+                plat, i, tests,
+                per_platform.get(plat, {}),
+                open_attr,
+            )
+    else:
+        # Fallback: old column table for sheet-merged data
+        plat_headers = "".join(
+            f'<th class="plat-header"><span class="plat-name">{p}</span></th>'
+            for p in platforms
+        )
+        tbody = ""
+        last_group = None
+        for t in tests:
+            name  = t["name"]
+            group = TEST_GROUPS.get(name, "Other")
+            note  = t["note"]
+            if group != last_group:
+                last_group = group
+                tbody += f'<tr class="group-row"><td class="group-label" colspan="{1+len(platforms)}">{group}</td></tr>\n'
+            cells = "".join(
+                f'<td class="result-cell">{status_cell(t["results"][i], note)}</td>'
+                for i in range(len(platforms))
+            )
+            tbody += f'<tr class="test-row"><td class="test-name">{name}</td>{cells}</tr>\n'
+        platform_blocks = f"""
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead><tr><th class="test-col-th">Test</th>{plat_headers}</tr></thead>
+        <tbody>{tbody}</tbody>
+      </table>
+    </div>
+    {render_recent_runs(data.get("recent_runs", []))}"""
 
     return f"""
   <section class="version-section" id="{vid}">
@@ -448,21 +600,8 @@ def render_section(version, data, generated_at):
       <span class="prow-hint">job history &amp; logs</span>
     </div>
 
-    {progress_html}
-
-    <div class="matrix-wrap">
-      <table class="matrix">
-        <thead>
-          <tr>
-            <th class="test-col-th">Test</th>
-            {plat_headers}
-          </tr>
-        </thead>
-        <tbody>
-          {tbody}
-        </tbody>
-      </table>
-    </div>
+    {overall_prog}
+    {platform_blocks}
   </section>
 """
 
@@ -635,6 +774,74 @@ PAGE_TEMPLATE = """\
     .dot-in-progress   {{ background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }}
     .dot-na            {{ background: transparent; color: #D1D5DB; border: 1px solid transparent; font-size: 14px; }}
 
+    /* ── System info chips ── */
+    .chip-hw {{ font-weight: 600; color: var(--dark); background: #F0F4FF; border-color: #C7D7FD; }}
+    .chip-label {{ font-weight: 600; color: var(--gray2); margin-right: 3px; }}
+
+    /* ── Platform collapsible blocks ── */
+    .platform-block {{
+      border: 1px solid var(--gray3); border-radius: 10px;
+      margin-bottom: 14px; background: var(--surface); overflow: hidden;
+    }}
+    .platform-summary {{
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 18px; cursor: pointer; user-select: none;
+      background: var(--dark2); color: #fff;
+      list-style: none;
+    }}
+    .platform-summary::-webkit-details-marker {{ display: none; }}
+    .plat-summary-name {{ font-size: 15px; font-weight: 700; flex: 1; }}
+    .plat-mini-prog {{
+      font-size: 11px; font-weight: 700; padding: 2px 9px;
+      border-radius: 20px; font-family: 'Red Hat Mono', monospace;
+    }}
+    .plat-mini-prog.ok   {{ background: #166534; color: #DCFCE7; }}
+    .plat-mini-prog.warn {{ background: #1D4ED8; color: #DBEAFE; }}
+    .plat-mini-prog.fail {{ background: #991B1B; color: #FEE2E2; }}
+    .plat-toggle {{ width: 18px; height: 18px; position: relative; flex-shrink: 0; }}
+    .plat-toggle::before, .plat-toggle::after {{
+      content: ''; position: absolute; background: rgba(255,255,255,.6);
+      border-radius: 2px; transition: transform .2s;
+    }}
+    .plat-toggle::before {{ width: 10px; height: 2px; top: 8px; left: 4px; }}
+    .plat-toggle::after  {{ width: 2px; height: 10px; top: 4px; left: 8px; }}
+    .platform-block[open] .plat-toggle::after {{ transform: scaleY(0); }}
+    .platform-body {{ padding: 16px 18px; }}
+    .platform-chips {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }}
+
+    /* ── Recent runs ── */
+    .recent-runs {{
+      margin-top: 14px;
+      border: 1px solid var(--gray3); border-radius: 8px;
+      overflow: hidden; font-size: 12.5px;
+    }}
+    .recent-runs summary {{
+      padding: 9px 14px; cursor: pointer; font-weight: 600;
+      background: #F9FAFB; color: var(--gray2);
+      list-style: none; user-select: none;
+    }}
+    .recent-runs summary::-webkit-details-marker {{ display: none; }}
+    .recent-runs[open] summary {{ border-bottom: 1px solid var(--gray3); }}
+    .runs-table {{ width: 100%; border-collapse: collapse; }}
+    .runs-table th {{
+      background: var(--dark2); color: rgba(255,255,255,.7);
+      padding: 6px 12px; font-size: 11px; font-weight: 600;
+      text-align: left; letter-spacing: .3px;
+    }}
+    .run-row {{ border-bottom: 1px solid #F0F0F0; }}
+    .run-row:last-child {{ border-bottom: none; }}
+    .run-row td {{ padding: 6px 12px; color: #444; }}
+    .run-icon {{ font-weight: 700; text-align: center; width: 28px; }}
+    .run-success {{ color: var(--c-verified); }}
+    .run-failure {{ color: var(--c-failed); }}
+    .runs-count {{ font-weight: 400; color: var(--gray2); font-size: 11px; }}
+    .runs-footer {{
+      padding: 7px 12px; text-align: right;
+      border-top: 1px solid var(--gray3); background: #F9FAFB;
+    }}
+    .runs-footer a {{ font-size: 11.5px; color: #1D4ED8; text-decoration: none; font-weight: 600; }}
+    .runs-footer a:hover {{ text-decoration: underline; }}
+
     /* ── Footer ── */
     .footer {{
       text-align: center; font-size: 11px; color: var(--gray2);
@@ -676,8 +883,7 @@ PAGE_TEMPLATE = """\
 {sections}
 
   <div class="footer">
-    Generated {generated_at} &nbsp;·&nbsp;
-    <a href="https://docs.google.com/spreadsheets/d/1GTRcrPsIDp8tRy0eq3CvVA6vRuEs7mzpGfXCik-FWg4" target="_blank">Source spreadsheet</a>
+    Generated {generated_at}{footer_extra}
   </div>
 
 </div>
@@ -705,11 +911,16 @@ PAGE_TEMPLATE = """\
 </html>
 """
 
-def generate_html(version_sections_html, nav_tabs_html, generated_at):
+def generate_html(version_sections_html, nav_tabs_html, generated_at, has_sheet=False):
+    footer_extra = (
+        ' &nbsp;·&nbsp; <a href="https://docs.google.com/spreadsheets/d/1GTRcrPsIDp8tRy0eq3CvVA6vRuEs7mzpGfXCik-FWg4" target="_blank">Source spreadsheet</a>'
+        if has_sheet else ""
+    )
     return PAGE_TEMPLATE.format(
         nav_tabs=nav_tabs_html,
         sections=version_sections_html,
         generated_at=generated_at,
+        footer_extra=footer_extra,
     )
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -779,7 +990,7 @@ def main():
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
-    html = generate_html(sections_html, nav_tabs_html, generated_at)
+    html = generate_html(sections_html, nav_tabs_html, generated_at, has_sheet=bool(files))
     output.write_text(html, encoding="utf-8")
     print(f"\nWrote {output} ({len(html):,} bytes)")
 
