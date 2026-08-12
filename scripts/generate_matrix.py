@@ -773,8 +773,7 @@ PAGE_TEMPLATE = """\
 {sections}
 
   <div class="footer">
-    Generated {generated_at} &nbsp;·&nbsp;
-    <a href="https://docs.google.com/spreadsheets/d/1GTRcrPsIDp8tRy0eq3CvVA6vRuEs7mzpGfXCik-FWg4" target="_blank">Source spreadsheet</a>
+    Generated {generated_at}{footer_extra}
   </div>
 
 </div>
@@ -802,11 +801,16 @@ PAGE_TEMPLATE = """\
 </html>
 """
 
-def generate_html(version_sections_html, nav_tabs_html, generated_at):
+def generate_html(version_sections_html, nav_tabs_html, generated_at, has_sheet=False):
+    footer_extra = (
+        ' &nbsp;·&nbsp; <a href="https://docs.google.com/spreadsheets/d/1GTRcrPsIDp8tRy0eq3CvVA6vRuEs7mzpGfXCik-FWg4" target="_blank">Source spreadsheet</a>'
+        if has_sheet else ""
+    )
     return PAGE_TEMPLATE.format(
         nav_tabs=nav_tabs_html,
         sections=version_sections_html,
         generated_at=generated_at,
+        footer_extra=footer_extra,
     )
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -876,7 +880,7 @@ def main():
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
-    html = generate_html(sections_html, nav_tabs_html, generated_at)
+    html = generate_html(sections_html, nav_tabs_html, generated_at, has_sheet=bool(files))
     output.write_text(html, encoding="utf-8")
     print(f"\nWrote {output} ({len(html):,} bytes)")
 

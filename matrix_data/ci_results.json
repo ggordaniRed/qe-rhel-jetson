@@ -5,11 +5,11 @@
       "pr": "42",
       "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087474408540082176",
       "platform": "AGX Orin",
-      "rhel_version": null,
+      "rhel_version": "9.8",
       "concluded_at": "2026-08-12T10:11:13Z",
       "conclusion": "success",
       "results": {
-        "Bootc switch": "not-started",
+        "Bootc switch": "na",
         "CAN bus": "verified",
         "CSI camera": "verified",
         "CUDA": "verified",
@@ -26,8 +26,56 @@
         "Nvidia CLI tools": "verified",
         "USBs": "verified",
         "VIC": "verified"
+      },
+      "system_info": {
+        "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
+        "rhel_version": "9.8",
+        "kernel_version": "5.14.0-687.31.1.el9_8.aarch64",
+        "l4t_version": "36.5.0",
+        "jetpack_version": "6.2.2",
+        "jetpack_kmod": "6.2.2",
+        "firmware": "UEFI 36.5.2",
+        "secure_boot": "disabled"
+      }
+    },
+    {
+      "build_id": "2087460667559776256",
+      "pr": "42",
+      "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087460667559776256",
+      "platform": "AGX Orin",
+      "rhel_version": "9.8",
+      "concluded_at": "2026-08-12T09:22:36Z",
+      "conclusion": "failure",
+      "results": {
+        "Bootc switch": "na",
+        "CAN bus": "verified",
+        "CSI camera": "verified",
+        "CUDA": "verified",
+        "Display": "verified",
+        "DLA": "failed",
+        "Ethernet": "verified",
+        "Kernel Modules": "verified",
+        "Multimedia": "verified",
+        "PCIs": "verified",
+        "PVA (VPI)": "verified",
+        "RTC": "verified",
+        "RC/Stage build": "verified",
+        "SPI/I2C": "verified",
+        "Nvidia CLI tools": "verified",
+        "USBs": "verified",
+        "VIC": "verified"
+      },
+      "system_info": {
+        "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
+        "rhel_version": "9.8",
+        "kernel_version": "5.14.0-687.31.1.el9_8.aarch64",
+        "l4t_version": "36.5.0",
+        "jetpack_version": "6.2.2",
+        "jetpack_kmod": "6.2.2",
+        "firmware": "UEFI 36.5.2",
+        "secure_boot": "disabled"
       }
     }
   ],
-  "fetched_at": "2026-08-12T10:24:18Z"
+  "fetched_at": "2026-08-12T12:07:09Z"
 }

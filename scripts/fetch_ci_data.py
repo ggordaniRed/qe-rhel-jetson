@@ -200,7 +200,7 @@ def parse_junit(xml_bytes):
         elif "verified" in outcomes:
             results[test_name] = "verified"
         else:
-            results[test_name] = "not-started"
+            results[test_name] = "na"  # all cases skipped → not applicable this run
     return results
 
 
