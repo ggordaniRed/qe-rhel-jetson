@@ -286,10 +286,14 @@ def build_data_from_ci(version, ci_map):
     if not platforms:
         return None
 
-    first = ci_map.get((version, platforms[0]), {})
-    run_url     = first.get("run_url", "")
-    system_info = first.get("system_info", {})
-    recent_runs = first.get("recent_runs", [])
+    per_platform = {
+        p: {
+            "system_info": ci_map.get((version, p), {}).get("system_info", {}),
+            "recent_runs": ci_map.get((version, p), {}).get("recent_runs", []),
+            "run_url":     ci_map.get((version, p), {}).get("run_url", ""),
+        }
+        for p in platforms
+    }
 
     tests = []
     for test_name in _TEST_ORDER:
@@ -304,14 +308,13 @@ def build_data_from_ci(version, ci_map):
             else:
                 results.append("na")
         if has_data:
-            tests.append({"name": test_name, "results": results, "note": "", "ci_url": run_url})
+            tests.append({"name": test_name, "results": results, "note": ""})
 
     return {
         "version_str": "",
         "platforms":   platforms,
         "tests":       tests,
-        "system_info": system_info,
-        "recent_runs": recent_runs,
+        "per_platform": per_platform,
     }
 
 
@@ -405,94 +408,174 @@ def render_recent_runs(recent_runs):
     </details>"""
 
 
-def render_section(version, data, generated_at):
-    meta       = VERSION_META.get(version, {"phase": "?", "phase_label": "", "phase_css": "tp"})
-    phase      = meta["phase"]
-    phase_lbl  = meta["phase_label"]
-    phase_css  = meta["phase_css"]
-    vid        = f"rhel-{version.replace('.', '-')}"
-    platforms  = data["platforms"]
-    tests      = data["tests"]
-    si         = data.get("system_info", {})
-
-    # Build chips — prefer system_info, fall back to version_str from sheet
-    chips = []
-    if si:
-        hw = si.get("hardware_model", "")
-        if hw:
-            chips.append(f'<span class="chip chip-hw">{hw}</span>')
-        for label, key in [
-            ("Kernel", "kernel_version"),
-            ("L4T",    "l4t_version"),
-            ("JetPack","jetpack_version"),
-            ("Firmware","firmware"),
-            ("Secure Boot","secure_boot"),
-        ]:
-            val = si.get(key, "")
-            if val:
-                chips.append(f'<span class="chip"><span class="chip-label">{label}</span> {val}</span>')
-    else:
-        for part in data["version_str"].split("|"):
-            part = part.strip()
-            if part and not re.match(r"RHEL\s+\d", part, re.I):
-                chips.append(f'<span class="chip">{part}</span>')
-    chips_html = "\n          ".join(chips)
-
-    # Progress
-    total = v = ns = f = ip = 0
+def _progress_html(tests, plat_idx):
+    total = v = 0
     for t in tests:
-        for s in t["results"]:
-            if s in ("na", "not-supported"):
-                continue
-            total += 1
-            if s == "verified":     v  += 1
-            elif s == "failed":     f  += 1
-            elif s == "in-progress":ip += 1
-            else:                   ns += 1
-
+        s = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
+        if s in ("na", "not-supported"):
+            continue
+        total += 1
+        if s == "verified":
+            v += 1
     pct = round(v / total * 100) if total else 0
-    progress_html = (
+    return (
         f'<div class="prog-row">'
         f'<span class="prog-label">{v} / {total} verified</span>'
         f'<div class="prog-bar"><div class="prog-fill" style="width:{pct}%"></div></div>'
         f'<span class="prog-pct">{pct}%</span>'
         f'</div>'
-    )
+    ), v, total
 
-    # Platform header row
-    plat_headers = "".join(
-        f'<th class="plat-header">'
-        f'<span class="plat-name">{p}</span>'
-        f'{"<span class=no-fw> no fw</span>" if "IGX" in p else ""}'
-        f'</th>'
-        for p in platforms
-    )
 
-    # Test rows grouped
+def _chips_from_si(si):
+    chips = []
+    hw = si.get("hardware_model", "")
+    if hw:
+        chips.append(f'<span class="chip chip-hw">{hw}</span>')
+    for label, key in [
+        ("Kernel", "kernel_version"),
+        ("L4T",    "l4t_version"),
+        ("JetPack","jetpack_version"),
+        ("Firmware","firmware"),
+        ("Secure Boot","secure_boot"),
+    ]:
+        val = si.get(key, "")
+        if val:
+            chips.append(f'<span class="chip"><span class="chip-label">{label}</span> {val}</span>')
+    return chips
+
+
+def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
+    si          = per_plat.get("system_info", {})
+    recent_runs = per_plat.get("recent_runs", [])
+
+    chips = _chips_from_si(si)
+    chips_html = "\n        ".join(chips)
+
+    prog_html, v, total = _progress_html(tests, plat_idx)
+
+    pct = round(v / total * 100) if total else 0
+    mini = f'<span class="plat-mini-prog {"ok" if pct == 100 else ("warn" if pct >= 50 else "fail")}">{v}/{total}</span>'
+
     tbody = ""
     last_group = None
     for t in tests:
-        name   = t["name"]
-        group  = TEST_GROUPS.get(name, "Other")
-        icon   = TEST_ICONS.get(name, "")
-        note   = t["note"]
-
+        name  = t["name"]
+        group = TEST_GROUPS.get(name, "Other")
+        note  = t["note"]
+        s     = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
         if group != last_group:
             last_group = group
-            empty_cells = "".join(f'<td></td>' for _ in platforms)
-            tbody += f'<tr class="group-row"><td class="group-label" colspan="{1 + len(platforms)}">{group}</td></tr>\n'
-
-        cells = "".join(status_cell(s, note) for s in t["results"])
-        cells_td = "".join(
-            f'<td class="result-cell">{status_cell(t["results"][i], note)}</td>'
-            for i in range(len(platforms))
-        )
+            tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
         tbody += (
             f'<tr class="test-row">'
             f'<td class="test-name">{name}</td>'
-            f'{cells_td}'
+            f'<td class="result-cell">{status_cell(s, note)}</td>'
             f'</tr>\n'
         )
+
+    no_fw = '<span class="no-fw"> no fw</span>' if "IGX" in platform else ""
+
+    return f"""
+    <details class="platform-block" {open_attr}>
+      <summary class="platform-summary">
+        <span class="plat-summary-name">{platform}{no_fw}</span>
+        {mini}
+        <span class="plat-toggle"></span>
+      </summary>
+      <div class="platform-body">
+        {"<div class='platform-chips'>" + chips_html + "</div>" if chips else ""}
+        {prog_html}
+        <div class="matrix-wrap">
+          <table class="matrix">
+            <thead><tr>
+              <th class="test-col-th">Test</th>
+              <th>Result</th>
+            </tr></thead>
+            <tbody>
+              {tbody}
+            </tbody>
+          </table>
+        </div>
+        {render_recent_runs(recent_runs)}
+      </div>
+    </details>"""
+
+
+def render_section(version, data, generated_at):
+    meta      = VERSION_META.get(version, {"phase": "?", "phase_label": "", "phase_css": "tp"})
+    phase     = meta["phase"]
+    phase_lbl = meta["phase_label"]
+    phase_css = meta["phase_css"]
+    vid       = f"rhel-{version.replace('.', '-')}"
+    platforms = data["platforms"]
+    tests     = data["tests"]
+    per_platform = data.get("per_platform", {})
+
+    # Overall version-level chips — use first platform's si, or version_str from sheet
+    first_si = per_platform.get(platforms[0], {}).get("system_info", {}) if per_platform else data.get("system_info", {})
+    if first_si:
+        chips_html = "\n          ".join(_chips_from_si(first_si))
+    else:
+        chips_html = "\n          ".join(
+            f'<span class="chip">{p.strip()}</span>'
+            for p in data.get("version_str", "").split("|")
+            if p.strip() and not re.match(r"RHEL\s+\d", p.strip(), re.I)
+        )
+
+    # Overall progress across all platforms
+    total_v = total_t = 0
+    for plat_idx in range(len(platforms)):
+        _, v, t = _progress_html(tests, plat_idx)
+        total_v += v
+        total_t += t
+    overall_pct = round(total_v / total_t * 100) if total_t else 0
+    overall_prog = (
+        f'<div class="prog-row">'
+        f'<span class="prog-label">{total_v} / {total_t} verified</span>'
+        f'<div class="prog-bar"><div class="prog-fill" style="width:{overall_pct}%"></div></div>'
+        f'<span class="prog-pct">{overall_pct}%</span>'
+        f'</div>'
+    )
+
+    # Per-platform collapsible blocks (first one open by default)
+    if per_platform:
+        platform_blocks = ""
+        for i, plat in enumerate(platforms):
+            open_attr = "open" if i == 0 else ""
+            platform_blocks += _platform_block(
+                plat, i, tests,
+                per_platform.get(plat, {}),
+                open_attr,
+            )
+    else:
+        # Fallback: old column table for sheet-merged data
+        plat_headers = "".join(
+            f'<th class="plat-header"><span class="plat-name">{p}</span></th>'
+            for p in platforms
+        )
+        tbody = ""
+        last_group = None
+        for t in tests:
+            name  = t["name"]
+            group = TEST_GROUPS.get(name, "Other")
+            note  = t["note"]
+            if group != last_group:
+                last_group = group
+                tbody += f'<tr class="group-row"><td class="group-label" colspan="{1+len(platforms)}">{group}</td></tr>\n'
+            cells = "".join(
+                f'<td class="result-cell">{status_cell(t["results"][i], note)}</td>'
+                for i in range(len(platforms))
+            )
+            tbody += f'<tr class="test-row"><td class="test-name">{name}</td>{cells}</tr>\n'
+        platform_blocks = f"""
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead><tr><th class="test-col-th">Test</th>{plat_headers}</tr></thead>
+        <tbody>{tbody}</tbody>
+      </table>
+    </div>
+    {render_recent_runs(data.get("recent_runs", []))}"""
 
     return f"""
   <section class="version-section" id="{vid}">
@@ -513,23 +596,8 @@ def render_section(version, data, generated_at):
       <span class="prow-hint">job history &amp; logs</span>
     </div>
 
-    {progress_html}
-
-    <div class="matrix-wrap">
-      <table class="matrix">
-        <thead>
-          <tr>
-            <th class="test-col-th">Test</th>
-            {plat_headers}
-          </tr>
-        </thead>
-        <tbody>
-          {tbody}
-        </tbody>
-      </table>
-    </div>
-
-    {render_recent_runs(data.get("recent_runs", []))}
+    {overall_prog}
+    {platform_blocks}
   </section>
 """
 
@@ -705,6 +773,37 @@ PAGE_TEMPLATE = """\
     /* ── System info chips ── */
     .chip-hw {{ font-weight: 600; color: var(--dark); background: #F0F4FF; border-color: #C7D7FD; }}
     .chip-label {{ font-weight: 600; color: var(--gray2); margin-right: 3px; }}
+
+    /* ── Platform collapsible blocks ── */
+    .platform-block {{
+      border: 1px solid var(--gray3); border-radius: 10px;
+      margin-bottom: 14px; background: var(--surface); overflow: hidden;
+    }}
+    .platform-summary {{
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 18px; cursor: pointer; user-select: none;
+      background: var(--dark2); color: #fff;
+      list-style: none;
+    }}
+    .platform-summary::-webkit-details-marker {{ display: none; }}
+    .plat-summary-name {{ font-size: 15px; font-weight: 700; flex: 1; }}
+    .plat-mini-prog {{
+      font-size: 11px; font-weight: 700; padding: 2px 9px;
+      border-radius: 20px; font-family: 'Red Hat Mono', monospace;
+    }}
+    .plat-mini-prog.ok   {{ background: #166534; color: #DCFCE7; }}
+    .plat-mini-prog.warn {{ background: #1D4ED8; color: #DBEAFE; }}
+    .plat-mini-prog.fail {{ background: #991B1B; color: #FEE2E2; }}
+    .plat-toggle {{ width: 18px; height: 18px; position: relative; flex-shrink: 0; }}
+    .plat-toggle::before, .plat-toggle::after {{
+      content: ''; position: absolute; background: rgba(255,255,255,.6);
+      border-radius: 2px; transition: transform .2s;
+    }}
+    .plat-toggle::before {{ width: 10px; height: 2px; top: 8px; left: 4px; }}
+    .plat-toggle::after  {{ width: 2px; height: 10px; top: 4px; left: 8px; }}
+    .platform-block[open] .plat-toggle::after {{ transform: scaleY(0); }}
+    .platform-body {{ padding: 16px 18px; }}
+    .platform-chips {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }}
 
     /* ── Recent runs ── */
     .recent-runs {{
