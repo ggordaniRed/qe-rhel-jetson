@@ -24,7 +24,8 @@ GCS_API   = "https://storage.googleapis.com/storage/v1/b/test-platform-results/o
 REPO_SLUG = "rh-ecosystem-edge_qe-rhel-jetson"
 
 # Artifact path — matches ci-operator step "as: pytest" + ref "qe-rhel-jetson-pytest"
-JUNIT_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/artifacts/junit.xml"
+JUNIT_PATH    = "artifacts/pytest/qe-rhel-jetson-pytest/artifacts/junit.xml"
+BUILD_LOG_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/build-log.txt"
 
 CLASS_TO_TEST = {
     "TestBootcSwitch":              "Bootc switch",
@@ -61,6 +62,15 @@ PLATFORM_FROM_HOSTNAME = {
     "nvidia-jetson-orin-nano-01.khw.eng.bos2.dc.redhat.com":"Orin Nano",
     "nvidia-jetson-igx-orin-01.khw.eng.bos2.dc.redhat.com": "IGX Orin",
     "nvidia-jetson-agx-thor-01.khw.eng.bos2.dc.redhat.com": "AGX Thor",
+}
+
+# Hardware model name (from build-log.txt) → short platform name
+PLATFORM_FROM_MODEL = {
+    "NVIDIA Jetson AGX Orin Developer Kit": "AGX Orin",
+    "NVIDIA IGX Orin Developer Kit":        "IGX Orin",
+    "NVIDIA Jetson Orin NX":                "Orin NX",
+    "NVIDIA Jetson Orin Nano":              "Orin Nano",
+    "NVIDIA Jetson AGX Thor":               "AGX Thor",
 }
 
 
@@ -101,6 +111,33 @@ def fetch_junit(pr, job, build_id):
         return fetch_bytes(url)
     except urllib.error.HTTPError:
         return None
+
+
+def fetch_system_info(pr, job, build_id):
+    """Parse hardware/version info from build-log.txt."""
+    import re
+    url = f"{pr_base(pr, job, build_id)}/{BUILD_LOG_PATH}"
+    try:
+        log = fetch_text(url)
+    except urllib.error.HTTPError:
+        return {}
+
+    info = {}
+    patterns = {
+        "hardware_model": r"Hardware model name:\s+(.+)",
+        "rhel_version":   r"\d+\.\s*RHEL version:\s+(\S+)",
+        "kernel_version": r"\d+\.\s*Kernel version:\s+(\S+)",
+        "l4t_version":    r"\d+\.\s*L4T version:\s+(\S+)",
+        "jetpack_version":r"\d+\.\s*JetPack version \(RPM\):\s+(\S+)",
+        "jetpack_kmod":   r"\d+\.\s*JetPack kmod \(RPM\):\s+(\S+)",
+        "firmware":       r"\d+\.\s*Firmware type/version:\s+(.+?)(?:\s*$)",
+        "secure_boot":    r"\d+\.\s*Secure boot state:\s+(\S+)",
+    }
+    for key, pattern in patterns.items():
+        m = re.search(pattern, log, re.MULTILINE)
+        if m:
+            info[key] = m.group(1).strip()
+    return info
 
 
 def fetch_platform(pr, job, build_id):
@@ -214,7 +251,13 @@ def main():
             print("    JUnit parsed but no known tests found, skipping.")
             continue
 
-        platform = fetch_platform(pr, args.job, build_id)
+        system_info = fetch_system_info(pr, args.job, build_id)
+        platform = (
+            PLATFORM_FROM_MODEL.get(system_info.get("hardware_model", ""))
+            or fetch_platform(pr, args.job, build_id)
+        )
+        rhel_version = system_info.get("rhel_version")
+
         ts = finished.get("timestamp", "")
         concluded_at = (
             datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -227,13 +270,14 @@ def main():
             "pr":           pr,
             "run_url":      prow_url(pr, args.job, build_id),
             "platform":     platform,
-            "rhel_version": None,
+            "rhel_version": rhel_version,
             "concluded_at": concluded_at,
             "conclusion":   conclusion,
             "results":      results,
+            "system_info":  system_info,
         }
         new_entries.append(entry)
-        print(f"    OK — platform={platform} conclusion={conclusion} tests={list(results)}")
+        print(f"    OK — platform={platform} RHEL={rhel_version} conclusion={conclusion}")
 
     if not new_entries:
         print("No new builds with junit results found.")

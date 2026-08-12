@@ -237,12 +237,14 @@ def parse_matrix(path):
 # ── CI results (from fetch_ci_data.py) ───────────────────────────────────────
 
 def load_ci_results(ci_json_path, default_version="9.7"):
-    """Return dict: (rhel_version, platform) → {test_name: status, _run_url: str}."""
+    """Return dict: (rhel_version, platform) → {results, run_url, system_info, recent_runs}."""
     path = Path(ci_json_path)
     if not path.exists():
         return {}
     data = json.loads(path.read_text())
     out = {}
+    # Track recent runs per (version, platform) for the history table
+    recent = {}
     for run in data.get("runs", []):
         version  = run.get("rhel_version") or default_version
         platform = run.get("platform")
@@ -250,8 +252,21 @@ def load_ci_results(ci_json_path, default_version="9.7"):
         if not platform or not results:
             continue
         key = (version, platform)
+        recent.setdefault(key, []).append({
+            "build_id":    run.get("build_id", ""),
+            "pr":          run.get("pr", ""),
+            "run_url":     run.get("run_url", ""),
+            "conclusion":  run.get("conclusion", ""),
+            "concluded_at":run.get("concluded_at", ""),
+        })
         if key not in out:
-            out[key] = {"results": results, "run_url": run.get("run_url", "")}
+            out[key] = {
+                "results":     results,
+                "run_url":     run.get("run_url", ""),
+                "system_info": run.get("system_info", {}),
+            }
+    for key in out:
+        out[key]["recent_runs"] = recent.get(key, [])[:5]
     return out
 
 
@@ -271,10 +286,10 @@ def build_data_from_ci(version, ci_map):
     if not platforms:
         return None
 
-    # Pick run_url from any entry for this version (for the prow bar)
-    run_url = next(
-        (ci_map[(version, p)]["run_url"] for p in platforms if (version, p) in ci_map), ""
-    )
+    first = ci_map.get((version, platforms[0]), {})
+    run_url     = first.get("run_url", "")
+    system_info = first.get("system_info", {})
+    recent_runs = first.get("recent_runs", [])
 
     tests = []
     for test_name in _TEST_ORDER:
@@ -291,7 +306,13 @@ def build_data_from_ci(version, ci_map):
         if has_data:
             tests.append({"name": test_name, "results": results, "note": "", "ci_url": run_url})
 
-    return {"version_str": "", "platforms": platforms, "tests": tests}
+    return {
+        "version_str": "",
+        "platforms":   platforms,
+        "tests":       tests,
+        "system_info": system_info,
+        "recent_runs": recent_runs,
+    }
 
 
 def apply_ci_results(data, version, ci_map):
@@ -356,6 +377,34 @@ def status_cell(status, note=""):
 def prow_link(text, url):
     return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
 
+def render_recent_runs(recent_runs):
+    if not recent_runs:
+        return ""
+    rows = ""
+    for r in recent_runs:
+        cls  = "run-success" if r["conclusion"] == "success" else "run-failure"
+        icon = "✓" if r["conclusion"] == "success" else "✗"
+        date = r["concluded_at"][:10] if r["concluded_at"] else "—"
+        pr   = f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{r["pr"]}" target="_blank">PR#{r["pr"]}</a>' if r["pr"] else "—"
+        rows += (
+            f'<tr class="run-row">'
+            f'<td class="run-icon {cls}">{icon}</td>'
+            f'<td>{date}</td>'
+            f'<td>{pr}</td>'
+            f'<td><a class="prow-link" href="{r["run_url"]}" target="_blank" rel="noopener">'
+            f'{r["build_id"][-8:]}</a></td>'
+            f'</tr>\n'
+        )
+    return f"""
+    <details class="recent-runs">
+      <summary>Recent runs</summary>
+      <table class="runs-table">
+        <thead><tr><th></th><th>Date</th><th>PR</th><th>Build</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </details>"""
+
+
 def render_section(version, data, generated_at):
     meta       = VERSION_META.get(version, {"phase": "?", "phase_label": "", "phase_css": "tp"})
     phase      = meta["phase"]
@@ -364,13 +413,29 @@ def render_section(version, data, generated_at):
     vid        = f"rhel-{version.replace('.', '-')}"
     platforms  = data["platforms"]
     tests      = data["tests"]
+    si         = data.get("system_info", {})
 
-    # Version metadata chips from the version string
+    # Build chips — prefer system_info, fall back to version_str from sheet
     chips = []
-    for part in data["version_str"].split("|"):
-        part = part.strip()
-        if part and not re.match(r"RHEL\s+\d", part, re.I):
-            chips.append(f'<span class="chip">{part}</span>')
+    if si:
+        hw = si.get("hardware_model", "")
+        if hw:
+            chips.append(f'<span class="chip chip-hw">{hw}</span>')
+        for label, key in [
+            ("Kernel", "kernel_version"),
+            ("L4T",    "l4t_version"),
+            ("JetPack","jetpack_version"),
+            ("Firmware","firmware"),
+            ("Secure Boot","secure_boot"),
+        ]:
+            val = si.get(key, "")
+            if val:
+                chips.append(f'<span class="chip"><span class="chip-label">{label}</span> {val}</span>')
+    else:
+        for part in data["version_str"].split("|"):
+            part = part.strip()
+            if part and not re.match(r"RHEL\s+\d", part, re.I):
+                chips.append(f'<span class="chip">{part}</span>')
     chips_html = "\n          ".join(chips)
 
     # Progress
@@ -463,6 +528,8 @@ def render_section(version, data, generated_at):
         </tbody>
       </table>
     </div>
+
+    {render_recent_runs(data.get("recent_runs", []))}
   </section>
 """
 
@@ -634,6 +701,36 @@ PAGE_TEMPLATE = """\
     .dot-not-supported {{ background: #FEF9C3; color: #854D0E; border: 1px solid #FDE047; }}
     .dot-in-progress   {{ background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }}
     .dot-na            {{ background: transparent; color: #D1D5DB; border: 1px solid transparent; font-size: 14px; }}
+
+    /* ── System info chips ── */
+    .chip-hw {{ font-weight: 600; color: var(--dark); background: #F0F4FF; border-color: #C7D7FD; }}
+    .chip-label {{ font-weight: 600; color: var(--gray2); margin-right: 3px; }}
+
+    /* ── Recent runs ── */
+    .recent-runs {{
+      margin-top: 14px;
+      border: 1px solid var(--gray3); border-radius: 8px;
+      overflow: hidden; font-size: 12.5px;
+    }}
+    .recent-runs summary {{
+      padding: 9px 14px; cursor: pointer; font-weight: 600;
+      background: #F9FAFB; color: var(--gray2);
+      list-style: none; user-select: none;
+    }}
+    .recent-runs summary::-webkit-details-marker {{ display: none; }}
+    .recent-runs[open] summary {{ border-bottom: 1px solid var(--gray3); }}
+    .runs-table {{ width: 100%; border-collapse: collapse; }}
+    .runs-table th {{
+      background: var(--dark2); color: rgba(255,255,255,.7);
+      padding: 6px 12px; font-size: 11px; font-weight: 600;
+      text-align: left; letter-spacing: .3px;
+    }}
+    .run-row {{ border-bottom: 1px solid #F0F0F0; }}
+    .run-row:last-child {{ border-bottom: none; }}
+    .run-row td {{ padding: 6px 12px; color: #444; }}
+    .run-icon {{ font-weight: 700; text-align: center; width: 28px; }}
+    .run-success {{ color: var(--c-verified); }}
+    .run-failure {{ color: var(--c-failed); }}
 
     /* ── Footer ── */
     .footer {{
