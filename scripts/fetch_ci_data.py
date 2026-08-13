@@ -176,9 +176,26 @@ def list_recent_builds(job, pr_limit=5, build_limit=3):
             yield pr, build_id
 
 
+def _extract_message(tc):
+    """Return failure/error text from a testcase element (up to 3000 chars)."""
+    for tag in ("failure", "error"):
+        el = tc.find(tag)
+        if el is None:
+            continue
+        # Prefer the full text body (contains traceback); fall back to message attr
+        full = (el.text or "").strip()
+        if not full:
+            full = (el.get("message") or "").strip()
+        if full:
+            return full[:3000]
+    return ""
+
+
 def parse_junit(xml_bytes):
     root = ElementTree.fromstring(xml_bytes)
-    aggregated = {}
+    aggregated = {}   # test_name → set of outcomes
+    messages   = {}   # test_name → first failure message seen
+
     for tc in root.iter("testcase"):
         classname = tc.get("classname", "")
         klass = classname.rsplit(".", 1)[-1]
@@ -187,21 +204,28 @@ def parse_junit(xml_bytes):
             continue
         if tc.find("failure") is not None or tc.find("error") is not None:
             outcome = "failed"
+            if test_name not in messages:
+                msg = _extract_message(tc)
+                if msg:
+                    messages[test_name] = msg
         elif tc.find("skipped") is not None:
             outcome = "skipped"
         else:
             outcome = "verified"
         aggregated.setdefault(test_name, set()).add(outcome)
 
-    results = {}
+    results  = {}
+    failures = {}
     for test_name, outcomes in aggregated.items():
         if "failed" in outcomes:
             results[test_name] = "failed"
+            if test_name in messages:
+                failures[test_name] = messages[test_name]
         elif "verified" in outcomes:
             results[test_name] = "verified"
         else:
-            results[test_name] = "na"  # all cases skipped → not applicable this run
-    return results
+            results[test_name] = "na"
+    return results, failures
 
 
 def prow_url(pr, job, build_id):
@@ -246,7 +270,7 @@ def main():
             print("    No junit.xml (pre-dates this feature), skipping.")
             continue
 
-        results = parse_junit(xml_bytes)
+        results, failures = parse_junit(xml_bytes)
         if not results:
             print("    JUnit parsed but no known tests found, skipping.")
             continue
@@ -274,6 +298,7 @@ def main():
             "concluded_at": concluded_at,
             "conclusion":   conclusion,
             "results":      results,
+            "failures":     failures,
             "system_info":  system_info,
         }
         new_entries.append(entry)
