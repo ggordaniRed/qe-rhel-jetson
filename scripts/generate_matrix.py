@@ -13,6 +13,7 @@ Only BootC installation results are captured (RPM-only columns are ignored).
 """
 
 import argparse
+import html as _html
 import json
 import re
 import sys
@@ -520,8 +521,7 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
             tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
 
         err_msg = failures.get(name, "") if s == "failed" else ""
-        tooltip = f"Failed — {err_msg}" if err_msg else ("Failed" if s == "failed" else "")
-        cell_inner = status_cell(s, tooltip or note)
+        cell_inner = status_cell(s, note)
         if s == "failed":
             url = _failure_url(name, recent_runs)
             if url:
@@ -529,12 +529,20 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
                     f'<a href="{url}" target="_blank" rel="noopener" class="fail-link">'
                     f'{cell_inner}</a>'
                 )
-        err_html = (
-            f'<div class="fail-msg" title="{err_msg}">{err_msg[:80]}{"…" if len(err_msg) > 80 else ""}</div>'
-            if err_msg else ""
-        )
+        if err_msg:
+            first_line = err_msg.splitlines()[0][:100]
+            hint = first_line + ("…" if len(err_msg.splitlines()[0]) > 100 else "")
+            err_html = (
+                f'<details class="fail-details">'
+                f'<summary class="fail-summary">{_html.escape(hint)}</summary>'
+                f'<pre class="fail-log">{_html.escape(err_msg)}</pre>'
+                f'</details>'
+            )
+        else:
+            err_html = ""
+        row_class = "test-row-failed" if s == "failed" else ""
         tbody += (
-            f'<tr class="test-row{"" if s != "failed" else " test-row-failed"}">'
+            f'<tr class="test-row {row_class}">'
             f'<td class="test-name">{name}</td>'
             f'<td class="result-cell">{cell_inner}{err_html}</td>'
             f'</tr>\n'
@@ -929,11 +937,26 @@ PAGE_TEMPLATE = """\
     }}
     .fail-link {{ text-decoration: none; }}
     .fail-link:hover .dot-failed {{ box-shadow: 0 0 0 2px #FECACA; }}
-    .fail-msg {{
-      font-size: 11px; color: #991B1B; margin-top: 3px;
-      font-family: 'Red Hat Mono', 'Roboto Mono', monospace;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      max-width: 340px; cursor: help;
+    .fail-details {{
+      margin-top: 5px; border-radius: 5px; overflow: hidden;
+      border: 1px solid #FECACA;
+    }}
+    .fail-summary {{
+      padding: 4px 8px; cursor: pointer; user-select: none;
+      font-size: 11px; color: #991B1B; font-weight: 600;
+      background: #FEF2F2; list-style: none; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 420px;
+    }}
+    .fail-summary::-webkit-details-marker {{ display: none; }}
+    .fail-summary::before {{ content: '▶ '; font-size: 9px; }}
+    .fail-details[open] .fail-summary::before {{ content: '▼ '; }}
+    .fail-log {{
+      margin: 0; padding: 8px 10px;
+      font-size: 11px; font-family: 'Red Hat Mono', 'Roboto Mono', monospace;
+      background: #FFF8F8; color: #7F1D1D;
+      white-space: pre-wrap; word-break: break-word;
+      max-height: 260px; overflow-y: auto;
+      border-top: 1px solid #FECACA;
     }}
     .test-row-failed {{ background: #FFF8F8; }}
     .test-row-failed:hover {{ background: #FEF2F2; }}

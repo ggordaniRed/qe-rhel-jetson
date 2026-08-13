@@ -177,17 +177,17 @@ def list_recent_builds(job, pr_limit=5, build_limit=3):
 
 
 def _extract_message(tc):
-    """Return the first non-empty failure/error message from a testcase element."""
+    """Return failure/error text from a testcase element (up to 3000 chars)."""
     for tag in ("failure", "error"):
         el = tc.find(tag)
         if el is None:
             continue
-        msg = (el.get("message") or "").strip()
-        if not msg:
-            msg = (el.text or "").strip()
-        if msg:
-            # Keep only the first line and cap at 200 chars
-            return msg.splitlines()[0][:200]
+        # Prefer the full text body (contains traceback); fall back to message attr
+        full = (el.text or "").strip()
+        if not full:
+            full = (el.get("message") or "").strip()
+        if full:
+            return full[:3000]
     return ""
 
 
