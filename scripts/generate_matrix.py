@@ -265,6 +265,10 @@ def load_ci_results(ci_json_path, default_version="9.7"):
                 "results":     results,
                 "run_url":     run.get("run_url", ""),
                 "system_info": run.get("system_info", {}),
+                "failures":    run.get("failures", {}),
+                "concluded_at":run.get("concluded_at", ""),
+                "conclusion":  run.get("conclusion", ""),
+                "pr":          run.get("pr", ""),
             }
     for key in out:
         out[key]["recent_runs"] = recent.get(key, [])[:5]
@@ -292,6 +296,10 @@ def build_data_from_ci(version, ci_map):
             "system_info": ci_map.get((version, p), {}).get("system_info", {}),
             "recent_runs": ci_map.get((version, p), {}).get("recent_runs", []),
             "run_url":     ci_map.get((version, p), {}).get("run_url", ""),
+            "failures":    ci_map.get((version, p), {}).get("failures", {}),
+            "concluded_at":ci_map.get((version, p), {}).get("concluded_at", ""),
+            "conclusion":  ci_map.get((version, p), {}).get("conclusion", ""),
+            "pr":          ci_map.get((version, p), {}).get("pr", ""),
         }
         for p in platforms
     }
@@ -475,6 +483,11 @@ def _failure_url(test_name, recent_runs):
 def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
     si          = per_plat.get("system_info", {})
     recent_runs = per_plat.get("recent_runs", [])
+    failures    = per_plat.get("failures", {})
+    run_url     = per_plat.get("run_url", "")
+    concluded_at= per_plat.get("concluded_at", "")
+    conclusion  = per_plat.get("conclusion", "")
+    pr          = per_plat.get("pr", "")
 
     chips = _chips_from_si(si)
     chips_html = "\n        ".join(chips)
@@ -506,23 +519,49 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
             last_group = group
             tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
 
-        cell_inner = status_cell(s, note)
+        err_msg = failures.get(name, "") if s == "failed" else ""
+        tooltip = f"Failed — {err_msg}" if err_msg else ("Failed" if s == "failed" else "")
+        cell_inner = status_cell(s, tooltip or note)
         if s == "failed":
             url = _failure_url(name, recent_runs)
             if url:
                 cell_inner = (
-                    f'<a href="{url}" target="_blank" rel="noopener" '
-                    f'class="fail-link" title="Open failing build on Prow">'
+                    f'<a href="{url}" target="_blank" rel="noopener" class="fail-link">'
                     f'{cell_inner}</a>'
                 )
+        err_html = (
+            f'<div class="fail-msg" title="{err_msg}">{err_msg[:80]}{"…" if len(err_msg) > 80 else ""}</div>'
+            if err_msg else ""
+        )
         tbody += (
             f'<tr class="test-row{"" if s != "failed" else " test-row-failed"}">'
             f'<td class="test-name">{name}</td>'
-            f'<td class="result-cell">{cell_inner}</td>'
+            f'<td class="result-cell">{cell_inner}{err_html}</td>'
             f'</tr>\n'
         )
 
     no_fw = '<span class="no-fw"> no fw</span>' if "IGX" in platform else ""
+
+    # Run context bar — shows what this table is based on
+    if run_url and concluded_at:
+        date    = concluded_at[:10]
+        pr_part = f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{pr}" target="_blank">PR#{pr}</a>' if pr else ""
+        conc_cls = "run-success" if conclusion == "success" else "run-failure"
+        conc_icon = "✓" if conclusion == "success" else "✗"
+        run_context = (
+            f'<div class="run-context-bar">'
+            f'<span class="run-context-label">Latest run</span>'
+            f'{pr_part}'
+            f'{"<span class=run-context-sep>·</span>" if pr_part else ""}'
+            f'<span>{date}</span>'
+            f'<span class="run-context-sep">·</span>'
+            f'<span class="{conc_cls}">{conc_icon} {conclusion.capitalize()}</span>'
+            f'<span class="run-context-sep">·</span>'
+            f'<a href="{run_url}" target="_blank" rel="noopener" class="prow-link">Open on Prow</a>'
+            f'</div>'
+        )
+    else:
+        run_context = ""
 
     return f"""
     <details class="platform-block" {open_attr}>
@@ -535,6 +574,7 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
       <div class="platform-body">
         {"<div class='platform-chips'>" + chips_html + "</div>" if chips else ""}
         {prog_html}
+        {run_context}
         <div class="matrix-wrap">
           <table class="matrix">
             <thead><tr>
@@ -889,10 +929,24 @@ PAGE_TEMPLATE = """\
     }}
     .fail-link {{ text-decoration: none; }}
     .fail-link:hover .dot-failed {{ box-shadow: 0 0 0 2px #FECACA; }}
+    .fail-msg {{
+      font-size: 11px; color: #991B1B; margin-top: 3px;
+      font-family: 'Red Hat Mono', 'Roboto Mono', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 340px; cursor: help;
+    }}
     .test-row-failed {{ background: #FFF8F8; }}
     .test-row-failed:hover {{ background: #FEF2F2; }}
     .plat-failures {{ display: flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }}
     .plat-failures .fail-chip {{ font-size: 10px; padding: 1px 5px; }}
+    .run-context-bar {{
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      font-size: 12px; padding: 7px 12px; margin-bottom: 12px;
+      background: #F8FAFF; border: 1px solid #C7D7FD; border-radius: 7px;
+      color: #374151;
+    }}
+    .run-context-label {{ font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: #6B7280; }}
+    .run-context-sep {{ color: var(--gray3); }}
     .runs-footer {{
       padding: 7px 12px; text-align: right;
       border-top: 1px solid var(--gray3); background: #F9FAFB;

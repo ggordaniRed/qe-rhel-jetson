@@ -1,6 +1,45 @@
 {
   "runs": [
     {
+      "build_id": "2087515841993117696",
+      "pr": "44",
+      "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/44/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087515841993117696",
+      "platform": "AGX Orin",
+      "rhel_version": "9.8",
+      "concluded_at": "2026-08-12T13:01:22Z",
+      "conclusion": "success",
+      "results": {
+        "Bootc switch": "na",
+        "CAN bus": "verified",
+        "CSI camera": "verified",
+        "CUDA": "verified",
+        "Display": "verified",
+        "DLA": "verified",
+        "Ethernet": "verified",
+        "Kernel Modules": "verified",
+        "Multimedia": "verified",
+        "PCIs": "verified",
+        "PVA (VPI)": "verified",
+        "RTC": "verified",
+        "RC/Stage build": "verified",
+        "SPI/I2C": "verified",
+        "Nvidia CLI tools": "verified",
+        "USBs": "verified",
+        "VIC": "verified"
+      },
+      "failures": {},
+      "system_info": {
+        "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
+        "rhel_version": "9.8",
+        "kernel_version": "5.14.0-687.31.1.el9_8.aarch64",
+        "l4t_version": "36.5.0",
+        "jetpack_version": "6.2.2",
+        "jetpack_kmod": "6.2.2",
+        "firmware": "UEFI 36.5.2",
+        "secure_boot": "disabled"
+      }
+    },
+    {
       "build_id": "2087474408540082176",
       "pr": "42",
       "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087474408540082176",
@@ -27,6 +66,7 @@
         "USBs": "verified",
         "VIC": "verified"
       },
+      "failures": {},
       "system_info": {
         "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
         "rhel_version": "9.8",
@@ -65,6 +105,9 @@
         "USBs": "verified",
         "VIC": "verified"
       },
+      "failures": {
+        "DLA": "AssertionError: TensorRT DLA core 0 failed: [08/12/2026-09:05:25] [W] [TRT] Layer 'node_of_OC2_DUMMY_0' (SHUFFLE): Unsupported on DLA. Switching this layer's device type to GPU."
+      },
       "system_info": {
         "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
         "rhel_version": "9.8",
@@ -77,5 +120,5 @@
       }
     }
   ],
-  "fetched_at": "2026-08-12T12:07:09Z"
+  "fetched_at": "2026-08-13T09:06:53Z"
 }
