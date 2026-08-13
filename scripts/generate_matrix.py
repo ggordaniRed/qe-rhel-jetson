@@ -258,6 +258,7 @@ def load_ci_results(ci_json_path, default_version="9.7"):
             "run_url":     run.get("run_url", ""),
             "conclusion":  run.get("conclusion", ""),
             "concluded_at":run.get("concluded_at", ""),
+            "results":     results,
         })
         if key not in out:
             out[key] = {
@@ -386,24 +387,38 @@ def render_recent_runs(recent_runs, max_shown=5):
     shown = recent_runs[:max_shown]
     rows = ""
     for r in shown:
-        cls  = "run-success" if r["conclusion"] == "success" else "run-failure"
-        icon = "✓" if r["conclusion"] == "success" else "✗"
+        success = r["conclusion"] == "success"
+        cls  = "run-success" if success else "run-failure"
+        icon = "✓" if success else "✗"
         date = r["concluded_at"][:10] if r["concluded_at"] else "—"
         pr   = f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{r["pr"]}" target="_blank">PR#{r["pr"]}</a>' if r["pr"] else "—"
+        build_link = (
+            f'<a class="prow-link" href="{r["run_url"]}" target="_blank" rel="noopener">'
+            f'{r["build_id"][-8:]}</a>'
+        ) if r.get("run_url") else r["build_id"][-8:]
+
+        failed_tests = sorted(t for t, s in r.get("results", {}).items() if s == "failed")
+        if failed_tests:
+            failures_html = " ".join(
+                f'<span class="fail-chip">{t}</span>' for t in failed_tests
+            )
+        else:
+            failures_html = '<span class="no-failures">all pass</span>' if success else '—'
+
         rows += (
             f'<tr class="run-row">'
             f'<td class="run-icon {cls}">{icon}</td>'
             f'<td>{date}</td>'
             f'<td>{pr}</td>'
-            f'<td><a class="prow-link" href="{r["run_url"]}" target="_blank" rel="noopener">'
-            f'{r["build_id"][-8:]}</a></td>'
+            f'<td>{build_link}</td>'
+            f'<td class="run-failures">{failures_html}</td>'
             f'</tr>\n'
         )
     return f"""
     <details class="recent-runs">
       <summary>Recent runs <span class="runs-count">({len(shown)} shown)</span></summary>
       <table class="runs-table">
-        <thead><tr><th></th><th>Date</th><th>PR</th><th>Build</th></tr></thead>
+        <thead><tr><th></th><th>Date</th><th>PR</th><th>Build</th><th>Failures</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
       <div class="runs-footer">
@@ -449,6 +464,14 @@ def _chips_from_si(si):
     return chips
 
 
+def _failure_url(test_name, recent_runs):
+    """Return the Prow URL of the most recent run where test_name failed."""
+    for r in recent_runs:
+        if r.get("results", {}).get(test_name) == "failed":
+            return r.get("run_url", "")
+    return ""
+
+
 def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
     si          = per_plat.get("system_info", {})
     recent_runs = per_plat.get("recent_runs", [])
@@ -459,7 +482,18 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
     prog_html, v, total = _progress_html(tests, plat_idx)
 
     pct = round(v / total * 100) if total else 0
-    mini = f'<span class="plat-mini-prog {"ok" if pct == 100 else ("warn" if pct >= 50 else "fail")}">{v}/{total}</span>'
+    mini_cls = "ok" if pct == 100 else ("warn" if pct >= 50 else "fail")
+    mini = f'<span class="plat-mini-prog {mini_cls}">{v}/{total}</span>'
+
+    # Collect failed test names for the header callout
+    failed_names = [
+        t["name"] for t in tests
+        if (t["results"][plat_idx] if plat_idx < len(t["results"]) else "na") == "failed"
+    ]
+    failure_callout = ""
+    if failed_names:
+        chips_str = " ".join(f'<span class="fail-chip">{n}</span>' for n in failed_names)
+        failure_callout = f'<span class="plat-failures">{chips_str}</span>'
 
     tbody = ""
     last_group = None
@@ -471,10 +505,20 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
         if group != last_group:
             last_group = group
             tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
+
+        cell_inner = status_cell(s, note)
+        if s == "failed":
+            url = _failure_url(name, recent_runs)
+            if url:
+                cell_inner = (
+                    f'<a href="{url}" target="_blank" rel="noopener" '
+                    f'class="fail-link" title="Open failing build on Prow">'
+                    f'{cell_inner}</a>'
+                )
         tbody += (
-            f'<tr class="test-row">'
+            f'<tr class="test-row{"" if s != "failed" else " test-row-failed"}">'
             f'<td class="test-name">{name}</td>'
-            f'<td class="result-cell">{status_cell(s, note)}</td>'
+            f'<td class="result-cell">{cell_inner}</td>'
             f'</tr>\n'
         )
 
@@ -485,6 +529,7 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
       <summary class="platform-summary">
         <span class="plat-summary-name">{platform}{no_fw}</span>
         {mini}
+        {failure_callout}
         <span class="plat-toggle"></span>
       </summary>
       <div class="platform-body">
@@ -835,6 +880,19 @@ PAGE_TEMPLATE = """\
     .run-success {{ color: var(--c-verified); }}
     .run-failure {{ color: var(--c-failed); }}
     .runs-count {{ font-weight: 400; color: var(--gray2); font-size: 11px; }}
+    .run-failures {{ max-width: 260px; }}
+    .no-failures {{ color: var(--gray2); font-size: 11px; font-style: italic; }}
+    .fail-chip {{
+      display: inline-block; margin: 1px 2px;
+      background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA;
+      border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600;
+    }}
+    .fail-link {{ text-decoration: none; }}
+    .fail-link:hover .dot-failed {{ box-shadow: 0 0 0 2px #FECACA; }}
+    .test-row-failed {{ background: #FFF8F8; }}
+    .test-row-failed:hover {{ background: #FEF2F2; }}
+    .plat-failures {{ display: flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }}
+    .plat-failures .fail-chip {{ font-size: 10px; padding: 1px 5px; }}
     .runs-footer {{
       padding: 7px 12px; text-align: right;
       border-top: 1px solid var(--gray3); background: #F9FAFB;
