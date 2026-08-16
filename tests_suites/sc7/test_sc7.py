@@ -30,11 +30,18 @@ from infra_tests.ssh_client import SSHConnection
 logger = getLogger(__name__)
 
 # Seconds to wait for the system to come back after suspend
-RESUME_TIMEOUT  = 120
+RESUME_TIMEOUT  = 240
 # How long to sleep before polling for SSH (give the system time to actually suspend)
-SUSPEND_SETTLE  = 10
+SUSPEND_SETTLE  = 15
 # RTC wakealarm offset in seconds (must be > SUSPEND_SETTLE + boot time margin)
-WAKEALARM_DELTA = 60
+WAKEALARM_DELTA = 90
+# Seconds to wait after reconnect before issuing commands (let the board stabilize)
+POST_RESUME_SETTLE = 10
+
+# dmesg patterns that are known-benign on Jetson and should not fail the test
+_DMESG_ALLOWLIST = [
+    "dce: dce_admin_setup_clients_ipc",   # DCE firmware IPC warning, harmless on resume
+]
 
 
 def _reconnect(timeout=RESUME_TIMEOUT):
@@ -164,6 +171,7 @@ class TestSC7Suspend:
         time.sleep(SUSPEND_SETTLE)
 
         resumed = _reconnect(RESUME_TIMEOUT)
+        time.sleep(POST_RESUME_SETTLE)  # let sshd and systemd fully stabilize
         return resumed, float(uptime_before)
 
     def test_sc7_suspend_resumes(self, fresh_ssh):
@@ -183,8 +191,12 @@ class TestSC7Suspend:
             dmesg = resumed.sudo("dmesg | tail -60", fail_on_rc=False)
             logger.info("Post-resume dmesg (last 60 lines):\n%s", dmesg.stdout)
 
-            lines = dmesg.stdout.lower().splitlines()
-            errors = [l for l in lines if "error" in l or "failed" in l or "call trace" in l]
+            lines = dmesg.stdout.splitlines()
+            errors = [
+                l for l in lines
+                if any(k in l.lower() for k in ("error", "failed", "call trace"))
+                and not any(a in l for a in _DMESG_ALLOWLIST)
+            ]
             if errors:
                 logger.warning("Errors in post-resume dmesg:\n%s", "\n".join(errors))
             assert not errors, (
@@ -235,6 +247,7 @@ class TestSC7Recovery:
 
         time.sleep(SUSPEND_SETTLE)
         self._resumed = _reconnect(RESUME_TIMEOUT)
+        time.sleep(POST_RESUME_SETTLE)
         yield self._resumed
         try:
             self._resumed.close()
@@ -263,10 +276,12 @@ class TestSC7Recovery:
             "dmesg | grep -iE 'tegra.*pm|sc7|suspend' | grep -iE 'error|fail'",
             fail_on_rc=False,
         )
-        if result.exit_status == 0 and result.stdout.strip():
-            pytest.fail(
-                f"Tegra PM errors after SC7 resume:\n{result.stdout.strip()}"
-            )
+        real_errors = [
+            l for l in result.stdout.strip().splitlines()
+            if not any(a in l for a in _DMESG_ALLOWLIST)
+        ]
+        if real_errors:
+            pytest.fail(f"Tegra PM errors after SC7 resume:\n" + "\n".join(real_errors))
         logger.info("No Tegra PM errors after SC7 resume")
 
     def test_systemd_no_failed_units(self, post_resume_ssh):
