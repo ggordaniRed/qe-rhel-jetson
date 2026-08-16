@@ -31,7 +31,7 @@ KNOWN_TESTS = {
     "SPI/I2C", "GPIO", "GPIOs", "PWM",
     "Display", "Text-based display", "GUI display",
     "Ethernet", "Nvidia CLI tools", "Kernel Modules",
-    "RC/Stage build", "RTC",
+    "RC/Stage build", "RTC", "SC7 Suspend", "ISP",
 }
 
 TEST_ALIASES = {
@@ -63,6 +63,8 @@ TEST_GROUPS = {
     "Kernel Modules":     "System",
     "RC/Stage build":     "System",
     "RTC":                "System",
+    "SC7 Suspend":        "Power Management",
+    "ISP":                "Media",
 }
 
 TEST_ICONS = {}
@@ -283,6 +285,7 @@ _TEST_ORDER = [
     "USBs", "PCIs", "CAN bus", "CSI camera", "SPI/I2C", "GPIO", "PWM",
     "Display", "Text-based display", "GUI display",
     "Ethernet", "Nvidia CLI tools", "Kernel Modules", "RC/Stage build", "RTC",
+    "SC7 Suspend", "ISP",
 ]
 
 
