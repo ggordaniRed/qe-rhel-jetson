@@ -66,6 +66,20 @@ def _reconnect(timeout=RESUME_TIMEOUT):
     )
 
 
+def _trigger_suspend(ssh):
+    """Flush all dirty pages then trigger SC7 suspend asynchronously.
+
+    sync ensures XFS (and any other filesystem) has no dirty writes in flight
+    when the SoC powers down.  Without it, a slow resume or forced power-cycle
+    can corrupt the journal and leave the filesystem read-only on next boot.
+    """
+    logger.info("Syncing filesystems before SC7 suspend…")
+    ssh.sudo("sync", fail_on_rc=False)
+    time.sleep(2)   # give writeback a moment to complete
+    logger.info("Triggering SC7 suspend (echo mem > /sys/power/state)…")
+    ssh.sudo("echo mem > /sys/power/state &", fail_on_rc=False)
+
+
 def _set_wakealarm(ssh, delta=WAKEALARM_DELTA):
     """Set the RTC wakealarm delta seconds from now. Returns alarm epoch."""
     epoch_r = ssh.run("cat /proc/driver/rtc 2>/dev/null | grep rtc_time || date +%s")
@@ -163,9 +177,7 @@ class TestSC7Suspend:
         uptime_before = ssh.run("cat /proc/uptime").stdout.split()[0]
         logger.info("Pre-suspend uptime: %ss", uptime_before)
 
-        # Trigger suspend asynchronously — connection will drop
-        logger.info("Triggering SC7 suspend (echo mem > /sys/power/state)…")
-        ssh.sudo("echo mem > /sys/power/state &", fail_on_rc=False)
+        _trigger_suspend(ssh)
 
         # Give the board time to actually suspend before we start polling
         time.sleep(SUSPEND_SETTLE)
@@ -241,8 +253,7 @@ class TestSC7Recovery:
             key_filename=key_path,
         )
         _set_wakealarm(pre, WAKEALARM_DELTA)
-        logger.info("Triggering SC7 for recovery tests…")
-        pre.sudo("echo mem > /sys/power/state &", fail_on_rc=False)
+        _trigger_suspend(pre)
         pre.close()
 
         time.sleep(SUSPEND_SETTLE)
