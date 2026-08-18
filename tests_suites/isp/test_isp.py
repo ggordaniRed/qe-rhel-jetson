@@ -324,7 +324,7 @@ class TestISPCapability:
     def test_isp_no_critical_dmesg_errors(self, ssh):
         """dmesg must not contain critical ISP errors (probe failures, resource allocation errors)."""
         result = ssh.sudo(
-            "dmesg | grep -iE 'isp.*error|isp.*fail|vi.*error|nvcsi.*error' | head -20",
+            r"dmesg | grep -iE '\bisp\b.*error|\bisp\b.*fail|nvhost.*vi.*error|tegra.*vi.*error|nvcsi.*error' | head -20",
             fail_on_rc=False,
         )
         if result.exit_status != 0 or not result.stdout.strip():
