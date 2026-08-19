@@ -393,50 +393,80 @@ def status_cell(status, note=""):
 def prow_link(text, url):
     return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
 
-def render_recent_runs(recent_runs, max_shown=5):
-    if not recent_runs:
-        return ""
-    shown = recent_runs[:max_shown]
-    rows = ""
-    for r in shown:
-        success = r["conclusion"] == "success"
-        cls  = "run-success" if success else "run-failure"
-        icon = "✓" if success else "✗"
-        date = r["concluded_at"][:10] if r["concluded_at"] else "—"
-        pr   = f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{r["pr"]}" target="_blank">PR#{r["pr"]}</a>' if r["pr"] else "—"
-        build_link = (
-            f'<a class="prow-link" href="{r["run_url"]}" target="_blank" rel="noopener">'
-            f'{r["build_id"][-8:]}</a>'
-        ) if r.get("run_url") else r["build_id"][-8:]
+def _run_col_header(r):
+    date = r["concluded_at"][:10] if r.get("concluded_at") else "—"
+    pr_part = (
+        f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{r["pr"]}" '
+        f'target="_blank" class="prow-link run-col-pr">PR#{r["pr"]}</a>'
+    ) if r.get("pr") else ""
+    success = r.get("conclusion") == "success"
+    icon_cls = "run-success" if success else "run-failure"
+    icon = "✓" if success else "✗"
+    build_link = (
+        f'<a class="prow-link run-col-build" href="{r["run_url"]}" target="_blank" rel="noopener">'
+        f'{r["build_id"][-8:]}</a>'
+    ) if r.get("run_url") else (r.get("build_id", "")[-8:] or "—")
+    return (
+        f'<th class="run-col-th">'
+        f'<span class="{icon_cls} run-col-icon">{icon}</span>'
+        f'<span class="run-col-date">{date}</span>'
+        f'{pr_part}'
+        f'{build_link}'
+        f'</th>'
+    )
 
-        failed_tests = sorted(t for t, s in r.get("results", {}).items() if s == "failed")
-        if failed_tests:
-            failures_html = " ".join(
-                f'<span class="fail-chip">{t}</span>' for t in failed_tests
+
+def render_multi_run_table(tests, recent_runs):
+    """Matrix table with one column per run — each cell shows that run's test result."""
+    ncols = len(recent_runs)
+    col_headers = "".join(_run_col_header(r) for r in recent_runs)
+
+    tbody = ""
+    last_group = None
+    for t in tests:
+        name = t["name"]
+        group = TEST_GROUPS.get(name, "Other")
+        note = t.get("note", "")
+        if group != last_group:
+            last_group = group
+            tbody += (
+                f'<tr class="group-row">'
+                f'<td class="group-label" colspan="{1 + ncols}">{group}</td>'
+                f'</tr>\n'
             )
-        else:
-            failures_html = '<span class="no-failures">all pass</span>' if success else '—'
-
-        rows += (
-            f'<tr class="run-row">'
-            f'<td class="run-icon {cls}">{icon}</td>'
-            f'<td>{date}</td>'
-            f'<td>{pr}</td>'
-            f'<td>{build_link}</td>'
-            f'<td class="run-failures">{failures_html}</td>'
+        any_failed = any(r.get("results", {}).get(name) == "failed" for r in recent_runs)
+        row_class = "test-row-failed" if any_failed else ""
+        cells = ""
+        for r in recent_runs:
+            s = r.get("results", {}).get(name, "na")
+            cell_inner = status_cell(s, note)
+            if s == "failed" and r.get("run_url"):
+                cell_inner = (
+                    f'<a href="{r["run_url"]}" target="_blank" rel="noopener" class="fail-link">'
+                    f'{cell_inner}</a>'
+                )
+            cells += f'<td class="result-cell">{cell_inner}</td>'
+        tbody += (
+            f'<tr class="test-row {row_class}">'
+            f'<td class="test-name">{name}</td>'
+            f'{cells}'
             f'</tr>\n'
         )
     return f"""
-    <details class="recent-runs">
-      <summary>Recent runs <span class="runs-count">({len(shown)} shown)</span></summary>
-      <table class="runs-table">
-        <thead><tr><th></th><th>Date</th><th>PR</th><th>Build</th><th>Failures</th></tr></thead>
-        <tbody>{rows}</tbody>
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead><tr>
+          <th class="test-col-th">Test</th>
+          {col_headers}
+        </tr></thead>
+        <tbody>
+          {tbody}
+        </tbody>
       </table>
       <div class="runs-footer">
         <a href="{PROW_HISTORY_BASE}" target="_blank" rel="noopener">View all runs on Prow &rarr;</a>
       </div>
-    </details>"""
+    </div>"""
 
 
 def _progress_html(tests, plat_idx):
@@ -512,67 +542,59 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
         chips_str = " ".join(f'<span class="fail-chip">{n}</span>' for n in failed_names)
         failure_callout = f'<span class="plat-failures">{chips_str}</span>'
 
-    tbody = ""
-    last_group = None
-    for t in tests:
-        name  = t["name"]
-        group = TEST_GROUPS.get(name, "Other")
-        note  = t["note"]
-        s     = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
-        if group != last_group:
-            last_group = group
-            tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
-
-        err_msg = failures.get(name, "") if s == "failed" else ""
-        cell_inner = status_cell(s, note)
-        if s == "failed":
-            url = _failure_url(name, recent_runs)
-            if url:
-                cell_inner = (
-                    f'<a href="{url}" target="_blank" rel="noopener" class="fail-link">'
-                    f'{cell_inner}</a>'
-                )
-        if err_msg:
-            first_line = err_msg.splitlines()[0][:100]
-            hint = first_line + ("…" if len(err_msg.splitlines()[0]) > 100 else "")
-            err_html = (
-                f'<details class="fail-details">'
-                f'<summary class="fail-summary">{_html.escape(hint)}</summary>'
-                f'<pre class="fail-log">{_html.escape(err_msg)}</pre>'
-                f'</details>'
-            )
-        else:
-            err_html = ""
-        row_class = "test-row-failed" if s == "failed" else ""
-        tbody += (
-            f'<tr class="test-row {row_class}">'
-            f'<td class="test-name">{name}</td>'
-            f'<td class="result-cell">{cell_inner}{err_html}</td>'
-            f'</tr>\n'
-        )
-
     no_fw = '<span class="no-fw"> no fw</span>' if "IGX" in platform else ""
 
-    # Run context bar — shows what this table is based on
-    if run_url and concluded_at:
-        date    = concluded_at[:10]
-        pr_part = f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{pr}" target="_blank">PR#{pr}</a>' if pr else ""
-        conc_cls = "run-success" if conclusion == "success" else "run-failure"
-        conc_icon = "✓" if conclusion == "success" else "✗"
-        run_context = (
-            f'<div class="run-context-bar">'
-            f'<span class="run-context-label">Latest run</span>'
-            f'{pr_part}'
-            f'{"<span class=run-context-sep>·</span>" if pr_part else ""}'
-            f'<span>{date}</span>'
-            f'<span class="run-context-sep">·</span>'
-            f'<span class="{conc_cls}">{conc_icon} {conclusion.capitalize()}</span>'
-            f'<span class="run-context-sep">·</span>'
-            f'<a href="{run_url}" target="_blank" rel="noopener" class="prow-link">Open on Prow</a>'
-            f'</div>'
-        )
+    if recent_runs:
+        matrix_html = render_multi_run_table(tests, recent_runs)
     else:
-        run_context = ""
+        # Fallback: single-result column when no per-run data
+        tbody = ""
+        last_group = None
+        for t in tests:
+            name  = t["name"]
+            group = TEST_GROUPS.get(name, "Other")
+            note  = t["note"]
+            s     = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
+            if group != last_group:
+                last_group = group
+                tbody += f'<tr class="group-row"><td class="group-label" colspan="2">{group}</td></tr>\n'
+            err_msg = failures.get(name, "") if s == "failed" else ""
+            cell_inner = status_cell(s, note)
+            if s == "failed":
+                url = _failure_url(name, recent_runs)
+                if url:
+                    cell_inner = (
+                        f'<a href="{url}" target="_blank" rel="noopener" class="fail-link">'
+                        f'{cell_inner}</a>'
+                    )
+            if err_msg:
+                first_line = err_msg.splitlines()[0][:100]
+                hint = first_line + ("…" if len(err_msg.splitlines()[0]) > 100 else "")
+                err_html = (
+                    f'<details class="fail-details">'
+                    f'<summary class="fail-summary">{_html.escape(hint)}</summary>'
+                    f'<pre class="fail-log">{_html.escape(err_msg)}</pre>'
+                    f'</details>'
+                )
+            else:
+                err_html = ""
+            row_class = "test-row-failed" if s == "failed" else ""
+            tbody += (
+                f'<tr class="test-row {row_class}">'
+                f'<td class="test-name">{name}</td>'
+                f'<td class="result-cell">{cell_inner}{err_html}</td>'
+                f'</tr>\n'
+            )
+        matrix_html = f"""
+        <div class="matrix-wrap">
+          <table class="matrix">
+            <thead><tr>
+              <th class="test-col-th">Test</th>
+              <th>Result</th>
+            </tr></thead>
+            <tbody>{tbody}</tbody>
+          </table>
+        </div>"""
 
     return f"""
     <details class="platform-block" {open_attr}>
@@ -585,19 +607,7 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
       <div class="platform-body">
         {"<div class='platform-chips'>" + chips_html + "</div>" if chips else ""}
         {prog_html}
-        {run_context}
-        <div class="matrix-wrap">
-          <table class="matrix">
-            <thead><tr>
-              <th class="test-col-th">Test</th>
-              <th>Result</th>
-            </tr></thead>
-            <tbody>
-              {tbody}
-            </tbody>
-          </table>
-        </div>
-        {render_recent_runs(recent_runs)}
+        {matrix_html}
       </div>
     </details>"""
 
@@ -905,34 +915,36 @@ PAGE_TEMPLATE = """\
     .platform-body {{ padding: 16px 18px; }}
     .platform-chips {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }}
 
-    /* ── Recent runs ── */
-    .recent-runs {{
-      margin-top: 14px;
-      border: 1px solid var(--gray3); border-radius: 8px;
-      overflow: hidden; font-size: 12.5px;
+    /* ── Run columns ── */
+    .run-col-th {{
+      min-width: 90px; text-align: center;
+      padding: 8px 10px; vertical-align: top;
     }}
-    .recent-runs summary {{
-      padding: 9px 14px; cursor: pointer; font-weight: 600;
-      background: #F9FAFB; color: var(--gray2);
-      list-style: none; user-select: none;
+    .run-col-icon {{
+      display: block; font-size: 14px; font-weight: 700; line-height: 1.4;
     }}
-    .recent-runs summary::-webkit-details-marker {{ display: none; }}
-    .recent-runs[open] summary {{ border-bottom: 1px solid var(--gray3); }}
-    .runs-table {{ width: 100%; border-collapse: collapse; }}
-    .runs-table th {{
-      background: var(--dark2); color: rgba(255,255,255,.7);
-      padding: 6px 12px; font-size: 11px; font-weight: 600;
-      text-align: left; letter-spacing: .3px;
+    .run-col-date {{
+      display: block; font-size: 10px; font-weight: 400;
+      color: rgba(255,255,255,.55); letter-spacing: .1px; margin-bottom: 3px;
     }}
-    .run-row {{ border-bottom: 1px solid #F0F0F0; }}
-    .run-row:last-child {{ border-bottom: none; }}
-    .run-row td {{ padding: 6px 12px; color: #444; }}
-    .run-icon {{ font-weight: 700; text-align: center; width: 28px; }}
+    .run-col-pr {{
+      display: block; font-size: 10.5px; font-weight: 600;
+      color: #93C5FD; text-decoration: none; margin-bottom: 2px;
+    }}
+    .run-col-pr:hover {{ text-decoration: underline; }}
+    .run-col-build {{
+      display: block; font-size: 10px; color: rgba(255,255,255,.4);
+      font-family: 'Red Hat Mono', monospace; text-decoration: none;
+    }}
+    .run-col-build:hover {{ color: rgba(255,255,255,.7); }}
     .run-success {{ color: var(--c-verified); }}
     .run-failure {{ color: var(--c-failed); }}
-    .runs-count {{ font-weight: 400; color: var(--gray2); font-size: 11px; }}
-    .run-failures {{ max-width: 260px; }}
-    .no-failures {{ color: var(--gray2); font-size: 11px; font-style: italic; }}
+    .runs-footer {{
+      padding: 7px 12px; text-align: right;
+      border-top: 1px solid var(--gray3); background: #F9FAFB;
+    }}
+    .runs-footer a {{ font-size: 11.5px; color: #1D4ED8; text-decoration: none; font-weight: 600; }}
+    .runs-footer a:hover {{ text-decoration: underline; }}
     .fail-chip {{
       display: inline-block; margin: 1px 2px;
       background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA;
@@ -973,13 +985,6 @@ PAGE_TEMPLATE = """\
     }}
     .run-context-label {{ font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: #6B7280; }}
     .run-context-sep {{ color: var(--gray3); }}
-    .runs-footer {{
-      padding: 7px 12px; text-align: right;
-      border-top: 1px solid var(--gray3); background: #F9FAFB;
-    }}
-    .runs-footer a {{ font-size: 11.5px; color: #1D4ED8; text-decoration: none; font-weight: 600; }}
-    .runs-footer a:hover {{ text-decoration: underline; }}
-
     /* ── Footer ── */
     .footer {{
       text-align: center; font-size: 11px; color: var(--gray2);
