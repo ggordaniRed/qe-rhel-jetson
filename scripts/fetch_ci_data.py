@@ -56,6 +56,11 @@ CLASS_TO_TEST = {
     "TestSC7Support":               "SC7 Suspend",
     "TestSC7Suspend":               "SC7 Suspend",
     "TestSC7Recovery":              "SC7 Suspend",
+    "TestISPDevice":                "ISP",
+    "TestISPDriver":                "ISP",
+    "TestISPSysfs":                 "ISP",
+    "TestISPDeviceTree":            "ISP",
+    "TestISPCapability":            "ISP",
 }
 
 PLATFORM_FROM_HOSTNAME = {

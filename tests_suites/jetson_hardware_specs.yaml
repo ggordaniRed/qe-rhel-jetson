@@ -44,6 +44,7 @@ _templates:
     video_dec: { supported: true }
     i2c: { min_buses: 4 }
     spi: { supported: true }
+    isp: { supported: true, vi_channels: 16, max_resolution: "64MP" }
   nano: &nano_common
     dla: { supported: false }
     pva: { supported: false }
@@ -52,6 +53,7 @@ _templates:
     video_dec: { supported: true }
     i2c: { min_buses: 2 }
     spi: { supported: true }
+    isp: { supported: true, vi_channels: 2, max_resolution: "64MP" }
   agx: &agx_common
     dla: { supported: true, cores: 2 }
     pva: { supported: true }
@@ -60,12 +62,14 @@ _templates:
     video_dec: { supported: true }
     i2c: { min_buses: 4 }
     spi: { supported: true }
+    isp: { supported: true, vi_channels: 16, max_resolution: "64MP" }
   orin_nx: &orin_nx_common
     dla: { supported: true, cores: 2 }
     pva: { supported: true }
     vic: { supported: true }
     i2c: { min_buses: 2 }
     spi: { supported: true }
+    isp: { supported: true, vi_channels: 8, max_resolution: "64MP" }
     tools: { power_modes: ["10W", "15W", "25W", "40W"] }
     video_enc: { supported: true }
     video_dec: { supported: true }
