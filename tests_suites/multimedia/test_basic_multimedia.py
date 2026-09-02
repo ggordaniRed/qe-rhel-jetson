@@ -10,7 +10,7 @@ from pathlib import Path
 from tests_suites import conftest as _conftest
 from tests_resources.container_ops import (
     build_container_image, run_container, cleanup_container_image,
-    get_l4t_jetpack_image,
+    L4T_JETPACK_IMAGE,
 )
 
 FILE = Path(os.path.realpath(__file__)).parent
@@ -20,9 +20,9 @@ class TestMultimedia:
     """Test multimedia functionality on Jetson devices."""
 
     @pytest.fixture(scope="class")
-    def l4t_mmapi_image(self, ssh, l4t_image_pulled):
+    def l4t_mmapi_image(self, ssh):
         """Build L4T MMAPI image once per class, clean up after."""
-        tag = f"l4t-mmapi-tests:{get_l4t_jetpack_image().split(':')[1]}"
+        tag = f"l4t-mmapi-tests:{L4T_JETPACK_IMAGE.split(':')[1]}"
         build_container_image(
             ssh, FILE / "Dockerfile.l4t_mmapi", tag,
             context_files=[FILE / "run-mmapi-tests.sh"],

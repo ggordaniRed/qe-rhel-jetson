@@ -90,5 +90,3 @@ pytest tests_suites/cuda/                                     # specific compone
 pytest tests_suites/ -v                                       # verbose output
 pytest tests_suites/ --target-kernel-version=5.14.0-687.12.1  # To override expected kernel version, This avoids editing `jetson_hardware_specs.yaml`
 ```
-
-Expected skips on stock RHEL 9.8 bootc (no GUI, no `v4l-utils`, SPI pinmux off, bootc switch opt-in) are listed under **Limitations** in [tests_suites/README.md](tests_suites/README.md).

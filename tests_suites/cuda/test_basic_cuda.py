@@ -11,7 +11,7 @@ from logging import getLogger
 logger = getLogger(__name__)
 from tests_resources.container_ops import (
     build_container_image, run_container, cleanup_container_image,
-    get_l4t_jetpack_image,
+    L4T_JETPACK_IMAGE,
 )
 
 FILE = Path(os.path.realpath(__file__)).parent
@@ -27,9 +27,9 @@ class TestCUDA:
     """Test CUDA functionality on Jetson devices."""
 
     @pytest.fixture(scope="class")
-    def l4t_cuda_image(self, ssh, l4t_image_pulled):
+    def l4t_cuda_image(self, ssh):
         """Build L4T CUDA samples image once per class, clean up after."""
-        tag = f"l4t-cuda-tests:{get_l4t_jetpack_image().split(':')[1]}-{CUDA_SAMPLES_VERSION}"
+        tag = f"l4t-cuda-tests:{L4T_JETPACK_IMAGE.split(':')[1]}-{CUDA_SAMPLES_VERSION}"
         build_container_image(
             ssh, FILE / "Dockerfile.l4t_cuda_samples", tag,
             build_args={

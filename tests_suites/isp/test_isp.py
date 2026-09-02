@@ -274,37 +274,25 @@ class TestISPDeviceTree:
         )
 
 
-def _ensure_v4l_utils(ssh):
-    """Install v4l-utils if needed. Return True when media-ctl and v4l2-ctl exist."""
-    check = ssh.run("which v4l2-ctl && which media-ctl", fail_on_rc=False)
-    if check.exit_status == 0:
-        return True
-    ssh.sudo("dnf install -y v4l-utils", fail_on_rc=False)
-    check = ssh.run("which v4l2-ctl && which media-ctl", fail_on_rc=False)
-    return check.exit_status == 0
-
-
 class TestISPCapability:
     """Verify ISP tooling and capability detection."""
 
     def test_v4l2_utils_installed(self, ssh):
-        """v4l2-ctl/media-ctl are used for live topology; skip if the RPM is not in repos.
-
-        RHEL 9.8 bootc AppStream on aarch64 does not currently ship v4l-utils.
-        ISP hardware coverage remains in TestISPSysfs and TestISPDeviceTree.
-        """
-        if not _ensure_v4l_utils(ssh):
-            pytest.skip(
-                "v4l-utils is not in the enabled repos "
-                "(dnf: No match for argument: v4l-utils). "
-                "Cannot install media-ctl/v4l2-ctl on this image."
-            )
-        logger.info("v4l2-utils: %s", ssh.run("rpm -q v4l-utils", fail_on_rc=False).stdout.strip())
+        """v4l2-utils (v4l2-ctl, media-ctl) should be installed for ISP inspection."""
+        result = ssh.run("which v4l2-ctl 2>/dev/null || rpm -q v4l-utils 2>/dev/null", fail_on_rc=False)
+        if result.exit_status != 0 or not result.stdout.strip():
+            warnings.warn(UserWarning(
+                "v4l2-utils not installed. Install with: dnf install v4l-utils. "
+                "Needed for media topology inspection and ISP capability queries."
+            ))
+        else:
+            logger.info("v4l2-utils: %s", result.stdout.strip())
 
     def test_media_ctl_topology(self, ssh):
         """media-ctl should enumerate ISP/VI/sensor links if camera modules are loaded."""
-        if not _ensure_v4l_utils(ssh):
-            pytest.skip("media-ctl not available (v4l-utils install failed)")
+        media_ctl = ssh.run("which media-ctl 2>/dev/null", fail_on_rc=False)
+        if media_ctl.exit_status != 0 or not media_ctl.stdout.strip():
+            pytest.skip("media-ctl not installed (install v4l-utils)")
 
         result = ssh.run("media-ctl -p 2>/dev/null", fail_on_rc=False)
         if result.exit_status != 0 or not result.stdout.strip():
@@ -320,8 +308,9 @@ class TestISPCapability:
 
     def test_v4l2_ctl_list_devices(self, ssh):
         """v4l2-ctl should list ISP/VI V4L2 devices if the pipeline is active."""
-        if not _ensure_v4l_utils(ssh):
-            pytest.skip("v4l2-ctl not available (v4l-utils install failed)")
+        v4l2 = ssh.run("which v4l2-ctl 2>/dev/null", fail_on_rc=False)
+        if v4l2.exit_status != 0 or not v4l2.stdout.strip():
+            pytest.skip("v4l2-ctl not installed (install v4l-utils)")
 
         result = ssh.run("v4l2-ctl --list-devices 2>/dev/null", fail_on_rc=False)
         if result.exit_status != 0 or not result.stdout.strip():

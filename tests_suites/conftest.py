@@ -342,18 +342,12 @@ def refresh_hardware_info_globals(ssh):
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def l4t_image_pulled(hardware_info_session):
     """Pre-pull L4T JetPack container image once per session.
-
-    Not autouse: SC7/RTC/and other non-container suites must not depend on
-    nvcr.io. Suites that build FROM l4t-jetpack request this fixture.
-
-    Host L4T is mapped to a published NGC tag (r36.5.x -> r36.4.0). If that
-    pull still fails, try remaining published tags on the same L4T major.
-    """
-    from tests_resources import container_ops as cops
-
+    Podman caches the base layer — subsequent podman build FROM this image
+    only downloads the test-specific layers on top."""
+    from tests_resources.container_ops import L4T_JETPACK_IMAGE
     with SSHConnection(
         JETSON_HOST,
         JETSON_USERNAME,
@@ -362,37 +356,7 @@ def l4t_image_pulled(hardware_info_session):
         JETSON_TIMEOUT,
         key_filename=key_path,
     ) as ssh:
-        candidates = [cops.get_l4t_jetpack_image()]
-        selected_tag = cops.get_l4t_jetpack_image().rsplit(":", 1)[-1]
-        host_major = cops._parse_l4t_tuple(selected_tag)[0]
-        for tag in cops.PUBLISHED_L4T_JETPACK_TAGS:
-            image = f"nvcr.io/nvidia/l4t-jetpack:{tag}"
-            if image not in candidates and cops._parse_l4t_tuple(tag)[0] == host_major:
-                candidates.append(image)
-
-        last_err = ""
-        pulled = None
-        for image in candidates:
-            exists = ssh.sudo(f"podman image exists {image}", fail_on_rc=False)
-            if exists.exit_status == 0:
-                logger.info("[Setup] L4T image already present: %s", image)
-                pulled = image
-                break
-            result = ssh.sudo(f"podman pull {image}", timeout=900, fail_on_rc=False)
-            if result.exit_status == 0:
-                logger.info("[Setup] Pulled L4T image: %s", image)
-                pulled = image
-                break
-            last_err = (result.stderr or result.stdout).strip()[:500]
-            logger.warning("[Setup] Could not pull %s: %s", image, last_err)
-
-        if pulled is None:
-            pytest.skip(
-                f"Failed to pull any L4T jetpack image {candidates}: {last_err}"
-            )
-        if pulled != cops.get_l4t_jetpack_image():
-            cops.L4T_JETPACK_IMAGE = pulled
-            logger.info("[Setup] L4T_JETPACK_IMAGE updated to pulled image %s", pulled)
+        ssh.sudo(f"podman pull {L4T_JETPACK_IMAGE}", timeout=900)
     yield
 
 @pytest.fixture(scope="session", autouse=True)

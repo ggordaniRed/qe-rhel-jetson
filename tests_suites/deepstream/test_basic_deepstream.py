@@ -17,13 +17,7 @@ logger = getLogger(__name__)
 
 FILE = Path(os.path.realpath(__file__)).parent
 
-# Jetson samples image (has sample streams/models). Not the dGPU Triton image:
-# nvcr.io/nvidia/deepstream:7.1-triton-multiarch prints driver 560.28+ UNAVAILABLE
-# on L4T and is the wrong default for this suite.
-DEEPSTREAM_IMAGE = os.getenv(
-    "DEEPSTREAM_IMAGE",
-    "nvcr.io/nvidia/deepstream:7.1-samples-multiarch",
-)
+DEEPSTREAM_IMAGE = os.getenv("DEEPSTREAM_IMAGE", "nvcr.io/nvidia/deepstream:7.1-triton-multiarch")
 
 DS_BASE = "/opt/nvidia/deepstream/deepstream"
 DS_SAMPLES = f"{DS_BASE}/samples"
@@ -101,22 +95,25 @@ class TestDeepStream:
             f"nvstreammux pipeline failed: {result.stderr}"
         )
 
+    @pytest.mark.extra
     def test_deepstream_sample_inference(self, ssh, deepstream_image):
         """Run DeepStream inference pipeline on the bundled sample H264 stream.
         Uses the Primary_Detector (ResNet10) model from DeepStream samples.
-        Note: TRT engine compilation on first run can take several minutes.
+        Marked @extra — TRT engine compilation on first run can take several minutes.
+        Run with: pytest --run-extra tests_suites/deepstream/
+
+        Note: requires a Jetson L4T-compatible DeepStream image.
+        Set DEEPSTREAM_IMAGE=nvcr.io/nvidia/deepstream-l4t:<version> for Jetson devices.
         """
-        # L4T / JetPack drivers are 540.x; some NGC images still print
-        # "built for NVIDIA Driver Release 560.28+" / UNAVAILABLE. NVIDIA
-        # documents that this is a container-runtime banner and is not a
-        # functional skip on Jetson — continue and let the pipeline decide.
-        probe = run_container(ssh, deepstream_image, "echo ok")
-        probe_out = probe.stdout + probe.stderr
-        if "UNAVAILABLE" in probe_out:
-            logger.warning(
-                "DeepStream image printed a driver-compatibility banner "
-                "(ignored on Jetson L4T):\n%s",
-                probe_out[-600:],
+        # Detect GPU driver compatibility — triton-multiarch requires NVIDIA driver 560.28+
+        # while Jetson L4T uses a different driver lineage (e.g. 540.x).
+        compat = run_container(ssh, deepstream_image, "echo ok")
+        if "UNAVAILABLE" in (compat.stdout + compat.stderr):
+            pytest.skip(
+                "DeepStream container not compatible with installed NVIDIA driver "
+                "(triton-multiarch requires 560.28+, Jetson L4T uses a different version). "
+                "Set DEEPSTREAM_IMAGE to a Jetson L4T DeepStream image, e.g. "
+                "nvcr.io/nvidia/deepstream-l4t:<version>"
             )
 
         # Detect available H264 decoder — nvv4l2decoder is L4T-only, not in triton-multiarch

@@ -12,7 +12,7 @@ from pathlib import Path
 from tests_suites import conftest as _conftest
 from tests_resources.container_ops import (
     build_container_image, run_container, cleanup_container_image,
-    get_l4t_jetpack_image,
+    L4T_JETPACK_IMAGE,
 )
 
 FILE = Path(os.path.realpath(__file__)).parent
@@ -22,9 +22,9 @@ class TestDLA:
     """Test DLA functionality on Jetson devices."""
 
     @pytest.fixture(scope="class")
-    def l4t_tensorrt_image(self, ssh, l4t_image_pulled):
+    def l4t_tensorrt_image(self, ssh):
         """Build L4T TensorRT image once per class, clean up after."""
-        tag = f"l4t-tensorrt-tests:{get_l4t_jetpack_image().split(':')[1]}"
+        tag = f"l4t-tensorrt-tests:{L4T_JETPACK_IMAGE.split(':')[1]}"
         build_container_image(ssh, FILE / "Dockerfile.l4t_tensorrt", tag, suite_name="dla")
         yield tag
         # Teardown
