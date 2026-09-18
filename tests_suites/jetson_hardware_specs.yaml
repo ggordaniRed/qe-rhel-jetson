@@ -6,9 +6,9 @@
 # Reference: https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/#:~:text=View%20Jetson%20Orin%20Technical%20Specifications
 
 # -----------------------------------------------------------------------------
-# Target versions per JetPack release (used by sanity tests and session skip logic)
+# Target versions per JetPack release (firmware compatibility and sanity data)
 # Note: jetpack_kmod_version is intentionally absent — kmod >= userspace is validated in sanity/test_version_check.py
-# Note: kernel_version can be overridden at runtime with --target-kernel-version
+# Note: kernel_version is retained as reference data; it is not a session gate.
 # -----------------------------------------------------------------------------
 _target_versions:
   "6.2.3":
@@ -196,7 +196,6 @@ _templates:
     "USB 3.2 Gen2": {capable_speed: "10000M", ports: 3 }, # 10000M = USB3.2 Gen2
     "USB 2.0": {capable_speed: "480M", ports: 3 }, # 480M = USB2.0
   }
-
 
 
 

@@ -161,7 +161,12 @@ On RHEL 9, camera kmods (`tegra_camera`, `nvhost_isp`, `nvcsi`, `tegra_vi`, …)
 
 ### Session-level (entire pytest run skipped)
 
-`hardware_info_session` skips the **whole session** if the model is not in `jetson_hardware_specs.yaml`, RHEL/JetPack is missing, or detected versions do not match `_target_versions` (override kernel with `--target-kernel-version`).
+`hardware_info_session` skips the **whole session** if the model is not in
+`jetson_hardware_specs.yaml`, RHEL/JetPack is missing, or the detected UEFI
+firmware does not match the firmware target for the detected JetPack release.
+RHEL, L4T, and kernel versions are reported in the setup summary but do not
+block latest/sidecar image testing. The legacy `--target-kernel-version`
+option remains accepted for command-line compatibility.
 
 ### Other environment skips
 

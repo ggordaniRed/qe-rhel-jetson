@@ -1,9 +1,9 @@
 """
 Sanity tests for JetPack version consistency.
 
-Individual target version checks (RHEL, L4T, userspace, kernel, firmware, [except kmod])
-are handled by session-level skip logic in conftest.py. These tests verify
-cross-component consistency that the skip logic doesn't cover. (along with checking kmod version)
+Firmware compatibility is handled by the session-level gate in conftest.py.
+These tests verify JetPack RPM consistency that the session gate does not
+cover (including checking kmod version).
 """
 from tests_resources.hardware_info import (
     get_all_jetpack_rpm_versions,

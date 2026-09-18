@@ -158,20 +158,23 @@ def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[D
     return targets.get(str(jetpack_userspace_version)) if jetpack_userspace_version else None
 
 def _verify_target_versions(kernel_version_override: Optional[str] = None) -> list[str]:
-    """Verify detected versions match targets. Returns list of mismatch messages."""
+    """Verify the firmware target for the detected JetPack release.
+
+    Sidecar/latest images may carry a newer RHEL kernel or userspace while
+    remaining valid test targets. Firmware compatibility is the deployment
+    gate; RHEL, L4T, and kernel versions are collected and reported but do not
+    suppress the test session.
+
+    ``kernel_version_override`` remains in the signature for CLI/API
+    compatibility with existing callers, but is intentionally not used for
+    session gating.
+    """
     target = _get_target_versions(JETPACK_VERSION)
     if target is None:
         return []
-    if kernel_version_override:
-        target = dict(target)
-        target["kernel_version"] = kernel_version_override
     mismatches = []
     checks = [
-        (RHEL_VERSION, "rhel_version", "RHEL"),
         (FIRMWARE_VERSION, "uefi_firmware_version", "UEFI firmware"),
-        (L4T_VERSION, "l4t_version", "L4T"),
-        (KERNEL_VERSION, "kernel_version", "Kernel"),
-        # kmod version is not checked here, it is checked in sanity/test_version_check.py
     ]
     for actual, key, label in checks:
         expected = target.get(key)
@@ -279,17 +282,21 @@ def hardware_info_session(request):
             "Install nvidia-jetpack-for-rhel RPMs before running tests."
         )
 
-    # Skip if no target specs defined for this JetPack version
+    # A target entry is still required so the firmware gate has an expected
+    # value for the detected JetPack release.
     target = _get_target_versions(JETPACK_VERSION)
     if target is None:
         pytest.skip(
-            f"No target specs defined for JetPack {JETPACK_VERSION}. "
-            "Add an entry to _target_versions in "
+            f"No firmware target defined for JetPack {JETPACK_VERSION}. "
+            "Add a uefi_firmware_version entry to _target_versions in "
             "tests_suites/jetson_hardware_specs.yaml."
         )
 
-    # Skip entire session if detected versions don't match targets
-    mismatches = _verify_target_versions(kernel_version_override=request.config.getoption("--target-kernel-version"))
+    # Firmware is the compatibility gate. RHEL, L4T, and kernel versions are
+    # intentionally not session gates so latest/sidecar images can be tested.
+    mismatches = _verify_target_versions(
+        kernel_version_override=request.config.getoption("--target-kernel-version")
+    )
     if mismatches:
         pytest.skip("Version mismatch — " + "; ".join(mismatches))
 
@@ -593,7 +600,10 @@ def pytest_addoption(parser):
     parser.addoption(
         "--target-kernel-version",
         default=None,
-        help="Override kernel_version in _target_versions (default: use value from jetson_hardware_specs.yaml)",
+        help=(
+            "Legacy compatibility option; kernel version is reported but no longer "
+            "gates the test session"
+        ),
     )
     parser.addoption(
         "--bootc-switch-image",
