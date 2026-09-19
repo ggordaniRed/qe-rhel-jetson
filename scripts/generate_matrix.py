@@ -77,6 +77,7 @@ STATUS_MAP = {
     "pending qe": "not-started", "pending": "not-started",
     "not supported": "not-supported", "notsupported": "not-supported",
     "n/a": "na", "--": "na", "": "na",
+    "skipped": "skipped", "skip": "skipped",
     "failed": "failed", "fail": "failed",
     "in progress": "in-progress", "inprogress": "in-progress", "wip": "in-progress",
 }
@@ -385,6 +386,7 @@ def status_cell(status, note=""):
         "not-started":   ("not-started",   "",      "Not Started"),
         "not-supported": ("not-supported", "N/S",   "Not Supported"),
         "na":            ("na",            "",      "N/A"),
+        "skipped":       ("skipped",       "Skip",  "Skipped"),
         "failed":        ("failed",        "Fail",  "Failed"),
         "in-progress":   ("in-progress",   "WIP",   "In Progress"),
     }
@@ -879,6 +881,7 @@ PAGE_TEMPLATE = """\
     .dot-failed        {{ background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }}
     .dot-not-started   {{ background: #F3F4F6; color: #9CA3AF; border: 1px solid #E5E7EB; }}
     .dot-not-supported {{ background: #FEF9C3; color: #854D0E; border: 1px solid #FDE047; }}
+    .dot-skipped       {{ background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }}
     .dot-in-progress   {{ background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }}
     .dot-na            {{ background: transparent; color: #D1D5DB; border: 1px solid transparent; font-size: 14px; }}
 

@@ -298,6 +298,8 @@ def parse_junit(xml_bytes):
                 failures[test_name] = messages[test_name]
         elif "verified" in outcomes:
             results[test_name] = "verified"
+        elif "skipped" in outcomes:
+            results[test_name] = "skipped"
         else:
             results[test_name] = "na"
     return results, failures
