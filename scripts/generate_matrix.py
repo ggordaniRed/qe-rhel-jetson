@@ -101,6 +101,12 @@ PROW_HISTORY_BASE = (
     "https://prow.ci.openshift.org/job-history/gs/test-platform-results"
     "/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
 )
+PERIODIC_JOB_DEFAULT = (
+    "periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full"
+)
+PERIODIC_HISTORY_BASE = (
+    "https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs"
+)
 
 # ── HTML parser ───────────────────────────────────────────────────────────────
 
@@ -265,6 +271,8 @@ def load_ci_results(ci_json_path, default_version="9.7"):
             "conclusion":  run.get("conclusion", ""),
             "concluded_at":run.get("concluded_at", ""),
             "results":     results,
+            "source":      run.get("source", "pr"),
+            "periodic_job":run.get("periodic_job", ""),
         })
         if key not in out:
             out[key] = {
@@ -397,6 +405,25 @@ def status_cell(status, note=""):
 def prow_link(text, url):
     return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
 
+
+def history_link(recent_runs):
+    """Return the full Prow history link matching the table's run source."""
+    periodic_job = next(
+        (
+            run.get("periodic_job") or PERIODIC_JOB_DEFAULT
+            for run in recent_runs
+            if run.get("source") == "periodic"
+        ),
+        None,
+    )
+    if periodic_job:
+        return (
+            f"{PERIODIC_HISTORY_BASE}/{periodic_job}",
+            "View all periodic runs on Prow &rarr;",
+        )
+    return PROW_HISTORY_BASE, "View all PR runs on Prow &rarr;"
+
+
 def _run_col_header(r):
     date = r["concluded_at"][:10] if r.get("concluded_at") else "—"
     pr_part = (
@@ -456,6 +483,7 @@ def render_multi_run_table(tests, recent_runs):
             f'{cells}'
             f'</tr>\n'
         )
+    history_url, history_label = history_link(recent_runs)
     return f"""
     <div class="matrix-wrap">
       <table class="matrix">
@@ -468,7 +496,7 @@ def render_multi_run_table(tests, recent_runs):
         </tbody>
       </table>
       <div class="runs-footer">
-        <a href="{PROW_HISTORY_BASE}" target="_blank" rel="noopener">View all runs on Prow &rarr;</a>
+        <a href="{history_url}" target="_blank" rel="noopener">{history_label}</a>
       </div>
     </div>"""
 

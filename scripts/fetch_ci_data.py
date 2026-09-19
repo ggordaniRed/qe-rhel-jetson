@@ -454,6 +454,7 @@ def main():
                 "failures": failures,
                 "system_info": system_info,
                 "source": "periodic",
+                "periodic_job": args.periodic_job,
             })
             print(
                 f"    OK — platform={platform} "
