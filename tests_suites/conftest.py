@@ -153,6 +153,17 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
 
 def _ensure_nvidia_container_toolkit(ssh):
     """Ensure the NVIDIA Container Toolkit and CDI configuration are ready."""
+    def locked_dnf(command, **kwargs):
+        """Serialize DNF across xdist workers sharing the same Jetson."""
+        # Mutate the inner dnf command first so bootc keeps its transient
+        # installation semantics; the outer command starts with ``flock``.
+        command = ssh._mutate_command(command)
+        return ssh.sudo(
+            "flock -w 900 /run/lock/qe-rhel-jetson-dnf.lock sh -c "
+            + shlex.quote(command),
+            **kwargs,
+        )
+
     repo_path = "/etc/yum.repos.d/nvidia-container-toolkit.repo"
     repo_content = """[nvidia-container-toolkit]
 name=nvidia-container-toolkit
@@ -184,10 +195,10 @@ sslcacert=/etc/pki/tls/certs/ca-bundle.crt
         encoded_repo = base64.b64encode(repo_content.encode()).decode()
         ssh.run(f"echo '{encoded_repo}' | base64 -d > /tmp/nvidia-toolkit.repo")
         ssh.sudo(f"mv /tmp/nvidia-toolkit.repo {repo_path}")
-        ssh.sudo("dnf clean all", fail_on_rc=False)
+        locked_dnf("dnf clean all", fail_on_rc=False)
 
     logger.info("[Setup] Ensuring nvidia-container-toolkit-base is installed...")
-    ssh.sudo("dnf install -y nvidia-container-toolkit-base")
+    locked_dnf("dnf install -y nvidia-container-toolkit-base")
 
     logger.info("[Setup] Checking NVIDIA CDI configuration...")
     cdi_check = ssh.run("nvidia-ctk cdi list", fail_on_rc=False)
