@@ -56,7 +56,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install system dependencies
-        run: sudo apt-get install -y -qq libkrb5-dev krb5-user
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -qq libkrb5-dev krb5-user
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
