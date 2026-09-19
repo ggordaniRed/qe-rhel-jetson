@@ -7,7 +7,7 @@ on:
     - cron: '30 14 * * 6'  # e2e-bootc — Saturday  14:30 UTC (job runs 12:00)
   # Also regenerate on push to this branch when matrix scripts change
   push:
-    branches: [main, rhel-9.8]
+    branches: [main, rhel-9.8, rhel-9.8-latest]
     paths:
       - "matrix_data/**"
       - "scripts/generate_matrix.py"
@@ -49,7 +49,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: rhel-9.8
+          # Use the branch that triggered the run. Scheduled runs execute from
+          # the default branch, but the latest Jetson matrix is maintained on
+          # rhel-9.8-latest, so keep scheduled dashboard generation current too.
+          ref: ${{ github.event_name == 'schedule' && 'rhel-9.8-latest' || github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -224,7 +227,7 @@ jobs:
           | **Job** | \`${JOB}\` |
           | **Build ID** | \`${BUILD_ID}\` |
           | **Result** | **${RESULT}** |
-          | **Prow Link** | [View on Prow](https://prow.ci.openshift.org/view/gs/${{ env.GCS_BUCKET }}/logs/${JOB}/${BUILD_ID}) |
+          | **Prow Link** | [View on Prow](https://prow.ci.openshift.org/view/gs/${{ env.GCS_PUBLIC_BUCKET }}/logs/${JOB}/${BUILD_ID}) |
 
           EOF
           fi
