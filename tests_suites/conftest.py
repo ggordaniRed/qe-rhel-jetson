@@ -151,6 +151,51 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
         logger.info("[Setup] EPEL missing, installing for RHEL %s", rhel_version)
         locked_dnf(cmd_epel)
 
+def _ensure_nvidia_container_toolkit(ssh):
+    """Ensure the NVIDIA Container Toolkit and CDI configuration are ready."""
+    repo_path = "/etc/yum.repos.d/nvidia-container-toolkit.repo"
+    repo_content = """[nvidia-container-toolkit]
+name=nvidia-container-toolkit
+baseurl=https://nvidia.github.io/libnvidia-container/stable/rpm/$basearch
+repo_gpgcheck=1
+gpgcheck=0
+enabled=1
+gpgkey=https://nvidia.github.io/libnvidia-container/gpgkey
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+
+[nvidia-container-toolkit-experimental]
+name=nvidia-container-toolkit-experimental
+baseurl=https://nvidia.github.io/libnvidia-container/experimental/rpm/$basearch
+repo_gpgcheck=1
+gpgcheck=0
+enabled=0
+gpgkey=https://nvidia.github.io/libnvidia-container/gpgkey
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+"""
+
+    logger.info("[Setup] Checking NVIDIA Container Toolkit repository...")
+    result = ssh.run(f"ls {repo_path}", fail_on_rc=False)
+    if result.exit_status != 0:
+        logger.info("[Setup] NVIDIA Toolkit repository missing, creating it...")
+        # Encode the repo content so shell expansion of $basearch cannot alter it.
+        import base64
+        encoded_repo = base64.b64encode(repo_content.encode()).decode()
+        ssh.run(f"echo '{encoded_repo}' | base64 -d > /tmp/nvidia-toolkit.repo")
+        ssh.sudo(f"mv /tmp/nvidia-toolkit.repo {repo_path}")
+        ssh.sudo("dnf clean all", fail_on_rc=False)
+
+    logger.info("[Setup] Ensuring nvidia-container-toolkit-base is installed...")
+    ssh.sudo("dnf install -y nvidia-container-toolkit-base")
+
+    logger.info("[Setup] Checking NVIDIA CDI configuration...")
+    cdi_check = ssh.run("nvidia-ctk cdi list", fail_on_rc=False)
+    if cdi_check.exit_status != 0 or "nvidia.com/gpu" not in cdi_check.stdout:
+        logger.info("[Setup] NVIDIA CDI is unavailable, generating it...")
+        ssh.sudo("mkdir -p /etc/cdi")
+        ssh.sudo("nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml")
+
 def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[Dict[str, str]]:
     """Return target version dict for the given Jetpack version, or None."""
     specs = _load_hardware_specs()
@@ -425,6 +470,26 @@ def beaker_repo_session(hardware_info_session):
         key_filename=key_path,
     ) as ssh:
         _install_beaker_repo(ssh, RHEL_VERSION)
+    yield
+
+@pytest.fixture(scope="session", autouse=True)
+def nvidia_toolkit_session(hardware_info_session):
+    """Set up NVIDIA Container Toolkit for RC/production images."""
+    if IS_STAGE_BUILD:
+        logger.info("[Setup] Stage build detected — skipping NVIDIA Toolkit setup")
+        yield
+        return
+
+    logger.info("[Setup] RC/production build detected — ensuring NVIDIA Container Toolkit...")
+    with SSHConnection(
+        JETSON_HOST,
+        JETSON_USERNAME,
+        JETSON_PASSWORD or None,
+        JETSON_PORT,
+        JETSON_TIMEOUT,
+        key_filename=key_path,
+    ) as ssh:
+        _ensure_nvidia_container_toolkit(ssh)
     yield
 
 @pytest.fixture(scope="session", autouse=True)
