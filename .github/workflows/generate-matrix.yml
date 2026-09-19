@@ -83,6 +83,9 @@ jobs:
               6) JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-bootc" ;;
               *) JOB="" ;;
             esac
+          elif [ "${{ github.ref_name }}" == "rhel-9.8-latest" ]; then
+            # Keep the latest branch dashboard current after parser/workflow changes.
+            JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full"
           else
             JOB=""
           fi
