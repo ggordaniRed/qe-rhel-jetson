@@ -95,18 +95,28 @@ jobs:
         run: |
           JOB="${{ steps.job.outputs.name }}"
           GCS_JOB_PATH="${{ env.GCS_BASE }}/${JOB}"
-          BUILD_ID=$(gsutil ls "${GCS_JOB_PATH}/" 2>/dev/null \
-            | grep -oE '[0-9]{19}' | sort -n | tail -1)
-          if [ -z "$BUILD_ID" ]; then
-            echo "No builds found for ${JOB}"
-            exit 1
+          # Prow artifacts may be private, or the selected job may not have
+          # completed a build yet. Neither condition should prevent the
+          # dashboard from being generated from the checked-in matrix data.
+          if ! LISTING=$(gsutil ls "${GCS_JOB_PATH}/" 2>&1); then
+            echo "::warning::Unable to list Prow builds for ${JOB}; artifacts may be private or unavailable."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "id=${BUILD_ID}" >> $GITHUB_OUTPUT
-          echo "path=${GCS_JOB_PATH}/${BUILD_ID}" >> $GITHUB_OUTPUT
+          BUILD_ID=$(printf '%s\n' "$LISTING" \
+            | grep -oE '[0-9]{19}' | sort -n | tail -1 || true)
+          if [ -z "$BUILD_ID" ]; then
+            echo "::warning::No completed Prow builds found for ${JOB}; skipping Prow artifact fetch."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+          echo "path=${GCS_JOB_PATH}/${BUILD_ID}" >> "$GITHUB_OUTPUT"
           echo "Latest build: ${BUILD_ID}"
 
       - name: Wait for Prow build to finish
-        if: steps.job.outputs.fetch == 'true'
+        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
         run: |
           BUILD_PATH="${{ steps.build.outputs.path }}"
           for i in $(seq 1 30); do
@@ -121,7 +131,7 @@ jobs:
           fi
 
       - name: Download Prow artifacts
-        if: steps.job.outputs.fetch == 'true'
+        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
         run: |
           BUILD_PATH="${{ steps.build.outputs.path }}"
           mkdir -p prow-results
@@ -136,7 +146,7 @@ jobs:
 
       - name: Parse Prow results
         id: prow
-        if: steps.job.outputs.fetch == 'true'
+        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
         run: |
           PASSED=$(python3 -c "
           import json
@@ -156,7 +166,7 @@ jobs:
 
       - name: Upload Prow raw artifacts
         uses: actions/upload-artifact@v4
-        if: steps.job.outputs.fetch == 'true'
+        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
         with:
           name: prow-results-${{ steps.job.outputs.name }}-${{ steps.build.outputs.id }}
           path: prow-results/
@@ -190,7 +200,8 @@ jobs:
         if: always()
         run: |
           FETCH="${{ steps.job.outputs.fetch }}"
-          if [ "$FETCH" == "true" ]; then
+          FOUND="${{ steps.build.outputs.found }}"
+          if [ "$FETCH" == "true" ] && [ "$FOUND" == "true" ]; then
             JOB="${{ steps.job.outputs.name }}"
             BUILD_ID="${{ steps.build.outputs.id }}"
             RESULT="${{ steps.prow.outputs.result }}"
@@ -206,6 +217,9 @@ jobs:
           | **Prow Link** | [View on Prow](https://prow.ci.openshift.org/view/gs/${{ env.GCS_BUCKET }}/logs/${JOB}/${BUILD_ID}) |
 
           EOF
+          fi
+          if [ "$FETCH" == "true" ] && [ "$FOUND" != "true" ]; then
+            echo "⚠️ Prow artifacts were unavailable; dashboard generated from existing matrix data." >> $GITHUB_STEP_SUMMARY
           fi
           echo "## 📊 Matrix dashboard regenerated" >> $GITHUB_STEP_SUMMARY
 
