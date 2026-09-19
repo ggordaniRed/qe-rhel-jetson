@@ -36,6 +36,7 @@ permissions:
 
 env:
   GCS_BUCKET: test-platform-results
+  GCS_PUBLIC_BUCKET: test-platform-results-public
   GCS_BASE: gs://test-platform-results/logs
 
 jobs:
@@ -96,12 +97,10 @@ jobs:
         if: steps.job.outputs.fetch == 'true'
         run: |
           JOB="${{ steps.job.outputs.name }}"
-          GCS_JOB_PATH="${{ env.GCS_BASE }}/${JOB}"
-          # Prow artifacts may be private, or the selected job may not have
-          # completed a build yet. Neither condition should prevent the
-          # dashboard from being generated from the checked-in matrix data.
+          GCS_JOB_PATH="gs://${{ env.GCS_PUBLIC_BUCKET }}/logs/${JOB}"
+          # Periodic Jetson artifacts are mirrored in the public bucket.
           if ! LISTING=$(gsutil ls "${GCS_JOB_PATH}/" 2>&1); then
-            echo "::warning::Unable to list Prow builds for ${JOB}; artifacts may be private or unavailable."
+            echo "::warning::Unable to list public Prow builds for ${JOB}; artifacts may be unavailable."
             echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -179,8 +178,17 @@ jobs:
       #========================================================================
       - name: Fetch CI results from Prow/GCS
         run: |
+          PERIODIC_ARGS=()
+          if [ -n "${{ steps.job.outputs.name }}" ]; then
+            PERIODIC_ARGS+=(
+              --include-periodic
+              --periodic-job "${{ steps.job.outputs.name }}"
+              --periodic-limit 5
+            )
+          fi
           python scripts/fetch_ci_data.py \
-            --output matrix_data/ci_results.json
+            --output matrix_data/ci_results.json \
+            "${PERIODIC_ARGS[@]}"
         continue-on-error: true
 
       - name: Generate dashboard

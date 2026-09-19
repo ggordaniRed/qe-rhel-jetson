@@ -6,11 +6,12 @@ and merge them into matrix_data/ci_results.json.
 Usage:
     python scripts/fetch_ci_data.py [--job JOB_NAME] [--runs N] [--output PATH]
 
-The GCS bucket test-platform-results is public — no credentials needed.
+The public test-platform-results-public bucket is used so no credentials are needed.
 """
 
 import argparse
 import json
+import re
 import sys
 import urllib.request
 import urllib.error
@@ -19,8 +20,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 PROW_JOB = "pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
-GCS_BASE  = "https://storage.googleapis.com/test-platform-results"
-GCS_API   = "https://storage.googleapis.com/storage/v1/b/test-platform-results/o"
+GCS_BASE  = "https://storage.googleapis.com/test-platform-results-public"
+GCS_API   = "https://storage.googleapis.com/storage/v1/b/test-platform-results-public/o"
 REPO_SLUG = "rh-ecosystem-edge_qe-rhel-jetson"
 
 # Artifact path — matches ci-operator step "as: pytest" + ref "qe-rhel-jetson-pytest"
@@ -123,13 +124,17 @@ def fetch_junit(pr, job, build_id):
 
 def fetch_system_info(pr, job, build_id):
     """Parse hardware/version info from build-log.txt."""
-    import re
     url = f"{pr_base(pr, job, build_id)}/{BUILD_LOG_PATH}"
     try:
         log = fetch_text(url)
     except urllib.error.HTTPError:
         return {}
 
+    return parse_system_info(log)
+
+
+def parse_system_info(log):
+    """Extract hardware and software versions from a pytest build log."""
     info = {}
     patterns = {
         "hardware_model": r"Hardware model name:\s+(.+)",
@@ -182,6 +187,68 @@ def list_recent_builds(job, pr_limit=5, build_limit=3):
             continue
         for build_id in sorted(builds, reverse=True)[:build_limit]:
             yield pr, build_id
+
+
+def periodic_base(job, build_id):
+    return f"{GCS_BASE}/logs/{job}/{build_id}"
+
+
+def periodic_test_step(job):
+    """Return the ci-operator test step directory, e.g. ``e2e-full``."""
+    match = re.search(r"(e2e-[^/]+)$", job)
+    return match.group(1) if match else "e2e-full"
+
+
+def list_periodic_builds(job, build_limit=5):
+    """Return recent public builds for a periodic Jetson job."""
+    prefix = f"logs/{job}/"
+    try:
+        builds = gcs_list_prefixes(prefix)
+    except Exception as exc:
+        print(f"Unable to list public periodic builds for {job}: {exc}")
+        return []
+    return sorted(
+        (build for build in builds if build.isdigit()),
+        reverse=True,
+    )[:build_limit]
+
+
+def fetch_periodic_finished(job, build_id):
+    try:
+        return fetch_json(f"{periodic_base(job, build_id)}/finished.json")
+    except urllib.error.HTTPError:
+        return None
+
+
+def fetch_periodic_junit(job, build_id):
+    step = periodic_test_step(job)
+    url = (
+        f"{periodic_base(job, build_id)}/artifacts/{step}/"
+        "qe-rhel-jetson-pytest/artifacts/junit.xml"
+    )
+    try:
+        return fetch_bytes(url)
+    except urllib.error.HTTPError:
+        return None
+
+
+def fetch_periodic_system_info(job, build_id):
+    step = periodic_test_step(job)
+    url = (
+        f"{periodic_base(job, build_id)}/artifacts/{step}/"
+        "qe-rhel-jetson-pytest/build-log.txt"
+    )
+    try:
+        return parse_system_info(fetch_text(url))
+    except urllib.error.HTTPError:
+        return {}
+
+
+def periodic_url(job, build_id):
+    return (
+        "https://gcs.ci.openshift.org/gcs/test-platform-results-public/"
+        f"logs/{job}/{build_id}/"
+    )
 
 
 def _extract_message(tc):
@@ -246,6 +313,22 @@ def main():
     ap.add_argument("--job",       default=PROW_JOB)
     ap.add_argument("--pr-limit",  type=int, default=10, help="PRs to scan (newest first)")
     ap.add_argument("--run-limit", type=int, default=10, help="Builds per PR to scan")
+    ap.add_argument(
+        "--include-periodic",
+        action="store_true",
+        help="Also fetch periodic results from the public GCS bucket",
+    )
+    ap.add_argument(
+        "--periodic-job",
+        default="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full",
+        help="Periodic job name to fetch",
+    )
+    ap.add_argument(
+        "--periodic-limit",
+        type=int,
+        default=5,
+        help="Number of recent periodic builds to scan",
+    )
     ap.add_argument("--output",    default="matrix_data/ci_results.json")
     args = ap.parse_args()
 
@@ -311,6 +394,69 @@ def main():
         }
         new_entries.append(entry)
         print(f"    OK — platform={platform} RHEL={rhel_version} conclusion={conclusion}")
+
+    if args.include_periodic:
+        print(f"Scanning public periodic job {args.periodic_job} ...")
+        for build_id in list_periodic_builds(args.periodic_job, args.periodic_limit):
+            if build_id in seen_ids:
+                continue
+
+            print(f"  periodic build {build_id} — checking ...")
+            finished = fetch_periodic_finished(args.periodic_job, build_id)
+            if finished is None:
+                print("    finished.json not found, skipping.")
+                continue
+            result = finished.get("result")
+            if result == "ABORTED":
+                print("    Aborted, skipping.")
+                continue
+            if result not in ("SUCCESS", "FAILURE"):
+                print(f"    Still running ({result}), skipping.")
+                continue
+
+            xml_bytes = fetch_periodic_junit(args.periodic_job, build_id)
+            if xml_bytes is None:
+                print("    No junit.xml, skipping.")
+                continue
+
+            results, failures = parse_junit(xml_bytes)
+            if not results:
+                print("    JUnit parsed but no known tests found, skipping.")
+                continue
+
+            system_info = fetch_periodic_system_info(args.periodic_job, build_id)
+            if not system_info.get("rhel_version"):
+                version_match = re.search(r"rhel-(\d+\.\d+)", args.periodic_job)
+                if version_match:
+                    system_info["rhel_version"] = version_match.group(1)
+            platform = PLATFORM_FROM_MODEL.get(
+                system_info.get("hardware_model", ""), "AGX Orin"
+            )
+            ts = finished.get("timestamp", "")
+            concluded_at = (
+                datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+                if ts else ""
+            )
+            conclusion = "success" if result == "SUCCESS" else "failure"
+            new_entries.append({
+                "build_id": build_id,
+                "pr": "",
+                "run_url": periodic_url(args.periodic_job, build_id),
+                "platform": platform,
+                "rhel_version": system_info.get("rhel_version"),
+                "concluded_at": concluded_at,
+                "conclusion": conclusion,
+                "results": results,
+                "failures": failures,
+                "system_info": system_info,
+                "source": "periodic",
+            })
+            print(
+                f"    OK — platform={platform} "
+                f"RHEL={system_info.get('rhel_version')} conclusion={conclusion}"
+            )
 
     if not new_entries:
         print("No new builds with junit results found.")
