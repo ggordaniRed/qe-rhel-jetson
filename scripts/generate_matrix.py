@@ -96,18 +96,6 @@ VERSION_META = {
     "10.2": {"phase": "DP", "phase_label": "Developer Preview",  "phase_css": "dp"},
 }
 
-# Prow job history base URL — append job name suffix
-PROW_HISTORY_BASE = (
-    "https://prow.ci.openshift.org/job-history/gs/test-platform-results"
-    "/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
-)
-PERIODIC_JOB_DEFAULT = (
-    "periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full"
-)
-PERIODIC_HISTORY_BASE = (
-    "https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs"
-)
-
 # ── HTML parser ───────────────────────────────────────────────────────────────
 
 class SheetParser(HTMLParser):
@@ -402,28 +390,6 @@ def status_cell(status, note=""):
     tooltip = label + (f" — {note}" if note else "")
     return f'<span class="dot dot-{cls}" title="{tooltip}">{icon}</span>'
 
-def prow_link(text, url):
-    return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
-
-
-def history_link(recent_runs):
-    """Return the full Prow history link matching the table's run source."""
-    periodic_job = next(
-        (
-            run.get("periodic_job") or PERIODIC_JOB_DEFAULT
-            for run in recent_runs
-            if run.get("source") == "periodic"
-        ),
-        None,
-    )
-    if periodic_job:
-        return (
-            f"{PERIODIC_HISTORY_BASE}/{periodic_job}",
-            "View all periodic runs on Prow &rarr;",
-        )
-    return PROW_HISTORY_BASE, "View all PR runs on Prow &rarr;"
-
-
 def _run_col_header(r):
     date = r["concluded_at"][:10] if r.get("concluded_at") else "—"
     pr_part = (
@@ -483,7 +449,6 @@ def render_multi_run_table(tests, recent_runs):
             f'{cells}'
             f'</tr>\n'
         )
-    history_url, history_label = history_link(recent_runs)
     return f"""
     <div class="matrix-wrap">
       <table class="matrix">
@@ -495,9 +460,6 @@ def render_multi_run_table(tests, recent_runs):
           {tbody}
         </tbody>
       </table>
-      <div class="runs-footer">
-        <a href="{history_url}" target="_blank" rel="noopener">{history_label}</a>
-      </div>
     </div>"""
 
 
@@ -731,13 +693,6 @@ def render_section(version, data, generated_at):
       </div>
     </div>
 
-    <div class="prow-bar">
-      <span class="prow-label">Prow CI</span>
-      {prow_link("pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest", PROW_HISTORY_BASE)}
-      <span class="prow-sep">·</span>
-      <span class="prow-hint">job history &amp; logs</span>
-    </div>
-
     {overall_prog}
     {platform_blocks}
   </section>
@@ -814,16 +769,6 @@ PAGE_TEMPLATE = """\
     /* ── Page ── */
     .page {{ max-width: 1200px; margin: 0 auto; padding: 32px 24px 80px; }}
 
-    /* ── Legend ── */
-    .legend {{
-      display: flex; gap: 20px; flex-wrap: wrap;
-      padding: 12px 18px; background: var(--surface);
-      border: 1px solid var(--gray3); border-radius: 8px;
-      margin-bottom: 36px; align-items: center;
-    }}
-    .legend-title {{ font-size: 11px; font-weight: 700; color: var(--gray2); text-transform: uppercase; letter-spacing: .5px; }}
-    .legend-item {{ display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }}
-
     /* ── Version section ── */
     .version-section {{ margin-bottom: 52px; scroll-margin-top: 76px; }}
     .version-header {{ margin-bottom: 16px; }}
@@ -837,18 +782,8 @@ PAGE_TEMPLATE = """\
       font-size: 12px; color: var(--gray2);
     }}
 
-    /* ── Prow bar ── */
-    .prow-bar {{
-      display: flex; align-items: center; gap: 10px;
-      background: #F0F4FF; border: 1px solid #C7D7FD;
-      border-radius: 8px; padding: 9px 14px; margin-bottom: 14px;
-      font-size: 12.5px; flex-wrap: wrap;
-    }}
-    .prow-label {{ font-weight: 700; color: #1D4ED8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }}
     .prow-link {{ color: #1D4ED8; font-weight: 600; text-decoration: none; }}
     .prow-link:hover {{ text-decoration: underline; }}
-    .prow-sep {{ color: var(--gray3); }}
-    .prow-hint {{ color: var(--gray2); font-size: 11.5px; }}
 
     /* ── Progress ── */
     .prog-row {{
@@ -972,12 +907,6 @@ PAGE_TEMPLATE = """\
     .run-col-build:hover {{ color: rgba(255,255,255,.7); }}
     .run-success {{ color: var(--c-verified); }}
     .run-failure {{ color: var(--c-failed); }}
-    .runs-footer {{
-      padding: 7px 12px; text-align: right;
-      border-top: 1px solid var(--gray3); background: #F9FAFB;
-    }}
-    .runs-footer a {{ font-size: 11.5px; color: #1D4ED8; text-decoration: none; font-weight: 600; }}
-    .runs-footer a:hover {{ text-decoration: underline; }}
     .fail-chip {{
       display: inline-block; margin: 1px 2px;
       background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA;
@@ -1045,16 +974,6 @@ PAGE_TEMPLATE = """\
 </nav>
 
 <div class="page">
-
-  <div class="legend">
-    <span class="legend-title">Legend</span>
-    <span class="legend-item"><span class="dot dot-verified">P</span> Verified</span>
-    <span class="legend-item"><span class="dot dot-not-started">–</span> Not Started</span>
-    <span class="legend-item"><span class="dot dot-not-supported">N/S</span> Not Supported</span>
-    <span class="legend-item"><span class="dot dot-failed">F</span> Failed</span>
-    <span class="legend-item"><span class="dot dot-in-progress">WIP</span> In Progress</span>
-    <span class="legend-item"><span class="dot dot-na">·</span> N/A</span>
-  </div>
 
 {sections}
 
