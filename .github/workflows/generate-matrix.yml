@@ -1,10 +1,9 @@
 name: Update Test Matrix Dashboard
 
 on:
-  # Cron: run after each Prow periodic job to give it time to finish
+  # Cron: run after the RHEL 9.8 e2e-full Prow periodic job to give it time to finish
   schedule:
-    - cron: '30 10 * * 1'  # e2e-full  — Monday    10:30 UTC (job runs 08:00)
-    - cron: '30 14 * * 6'  # e2e-bootc — Saturday  14:30 UTC (job runs 12:00)
+    - cron: '30 10 * * 1'  # Monday 10:30 UTC (job runs 08:00)
   # Also regenerate on push to this branch when matrix scripts change
   push:
     branches: [main, rhel-9.8, rhel-9.8-latest]
@@ -20,16 +19,6 @@ on:
     types: [completed]
   # Manual trigger
   workflow_dispatch:
-    inputs:
-      job_name:
-        description: 'Prow periodic job to fetch (leave blank to skip GCS fetch)'
-        required: false
-        default: ''
-        type: choice
-        options:
-          - ''
-          - periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full
-          - periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-bootc
 
 permissions:
   contents: read
@@ -66,46 +55,27 @@ jobs:
       # here and make Pages refreshes unnecessarily slow and fragile.
 
       #========================================================================
-      # Step 1: Fetch Prow periodic job results from GCS (cron / manual only)
+      # Step 1: Fetch only the RHEL 9.8 e2e-full Prow periodic job from GCS
       #========================================================================
       - name: Resolve Prow job name
         id: job
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            JOB="${{ github.event.inputs.job_name }}"
-          elif [ "${{ github.event_name }}" == "schedule" ]; then
-            DOW=$(date -u +%u)  # 1=Mon 6=Sat
-            case "$DOW" in
-              1) JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full" ;;
-              6) JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-bootc" ;;
-              *) JOB="" ;;
-            esac
-          elif [ "${{ github.ref_name }}" == "rhel-9.8-latest" ]; then
-            # Keep the latest branch dashboard current after parser/workflow changes.
-            JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full"
-          else
-            JOB=""
-          fi
+          JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full"
           echo "name=$JOB" >> $GITHUB_OUTPUT
-          [ -n "$JOB" ] && echo "fetch=true" >> $GITHUB_OUTPUT || echo "fetch=false" >> $GITHUB_OUTPUT
-          echo "Prow job to fetch: ${JOB:-none}"
+          echo "fetch=true" >> $GITHUB_OUTPUT
+          echo "Prow job to fetch: $JOB"
 
       #========================================================================
-      # Step 2: Fetch PR/periodic results and generate dashboard
+      # Step 2: Fetch periodic results and generate dashboard
       #========================================================================
       - name: Fetch CI results from Prow/GCS
         run: |
-          PERIODIC_ARGS=()
-          if [ -n "${{ steps.job.outputs.name }}" ]; then
-            PERIODIC_ARGS+=(
-              --include-periodic
-              --periodic-job "${{ steps.job.outputs.name }}"
-              --periodic-limit 5
-            )
-          fi
           python scripts/fetch_ci_data.py \
             --output matrix_data/ci_results.json \
-            "${PERIODIC_ARGS[@]}"
+            --include-periodic \
+            --periodic-only \
+            --periodic-job "${{ steps.job.outputs.name }}" \
+            --periodic-limit 5
         continue-on-error: true
 
       - name: Fetch and summarize device logs

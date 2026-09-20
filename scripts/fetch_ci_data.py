@@ -331,71 +331,84 @@ def main():
         default=5,
         help="Number of recent periodic builds to scan",
     )
+    ap.add_argument(
+        "--periodic-only",
+        action="store_true",
+        help="Rebuild the output using only the selected periodic job; omit PR results",
+    )
     ap.add_argument("--output",    default="matrix_data/ci_results.json")
     args = ap.parse_args()
 
+    if args.periodic_only and not args.include_periodic:
+        ap.error("--periodic-only requires --include-periodic")
+
     output_path = Path(args.output)
-    existing = json.loads(output_path.read_text()) if output_path.exists() else {"runs": []}
+    existing = (
+        {"runs": []}
+        if args.periodic_only
+        else json.loads(output_path.read_text()) if output_path.exists() else {"runs": []}
+    )
     seen_ids = {r["build_id"] for r in existing.get("runs", [])}
 
-    print(f"Scanning recent PRs for {args.job} ...")
     new_entries = []
 
-    for pr, build_id in list_recent_builds(args.job, args.pr_limit, args.run_limit):
-        if build_id in seen_ids:
-            continue
+    if not args.periodic_only:
+        print(f"Scanning recent PRs for {args.job} ...")
+        for pr, build_id in list_recent_builds(args.job, args.pr_limit, args.run_limit):
+            if build_id in seen_ids:
+                continue
 
-        print(f"  PR#{pr} build {build_id} — checking ...")
-        finished = fetch_finished(pr, args.job, build_id)
-        if finished is None:
-            print("    finished.json not found, skipping.")
-            continue
-        result = finished.get("result")
-        if result == "ABORTED":
-            print("    Aborted, skipping.")
-            continue
-        if result not in ("SUCCESS", "FAILURE"):
-            print(f"    Still running ({result}), skipping.")
-            continue
+            print(f"  PR#{pr} build {build_id} — checking ...")
+            finished = fetch_finished(pr, args.job, build_id)
+            if finished is None:
+                print("    finished.json not found, skipping.")
+                continue
+            result = finished.get("result")
+            if result == "ABORTED":
+                print("    Aborted, skipping.")
+                continue
+            if result not in ("SUCCESS", "FAILURE"):
+                print(f"    Still running ({result}), skipping.")
+                continue
 
-        xml_bytes = fetch_junit(pr, args.job, build_id)
-        if xml_bytes is None:
-            print("    No junit.xml (pre-dates this feature), skipping.")
-            continue
+            xml_bytes = fetch_junit(pr, args.job, build_id)
+            if xml_bytes is None:
+                print("    No junit.xml (pre-dates this feature), skipping.")
+                continue
 
-        results, failures = parse_junit(xml_bytes)
-        if not results:
-            print("    JUnit parsed but no known tests found, skipping.")
-            continue
+            results, failures = parse_junit(xml_bytes)
+            if not results:
+                print("    JUnit parsed but no known tests found, skipping.")
+                continue
 
-        system_info = fetch_system_info(pr, args.job, build_id)
-        platform = (
-            PLATFORM_FROM_MODEL.get(system_info.get("hardware_model", ""))
-            or fetch_platform(pr, args.job, build_id)
-        )
-        rhel_version = system_info.get("rhel_version")
+            system_info = fetch_system_info(pr, args.job, build_id)
+            platform = (
+                PLATFORM_FROM_MODEL.get(system_info.get("hardware_model", ""))
+                or fetch_platform(pr, args.job, build_id)
+            )
+            rhel_version = system_info.get("rhel_version")
 
-        ts = finished.get("timestamp", "")
-        concluded_at = (
-            datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            if ts else ""
-        )
-        conclusion = "success" if finished.get("result") == "SUCCESS" else "failure"
+            ts = finished.get("timestamp", "")
+            concluded_at = (
+                datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                if ts else ""
+            )
+            conclusion = "success" if finished.get("result") == "SUCCESS" else "failure"
 
-        entry = {
-            "build_id":     build_id,
-            "pr":           pr,
-            "run_url":      prow_url(pr, args.job, build_id),
-            "platform":     platform,
-            "rhel_version": rhel_version,
-            "concluded_at": concluded_at,
-            "conclusion":   conclusion,
-            "results":      results,
-            "failures":     failures,
-            "system_info":  system_info,
-        }
-        new_entries.append(entry)
-        print(f"    OK — platform={platform} RHEL={rhel_version} conclusion={conclusion}")
+            entry = {
+                "build_id":     build_id,
+                "pr":           pr,
+                "run_url":      prow_url(pr, args.job, build_id),
+                "platform":     platform,
+                "rhel_version": rhel_version,
+                "concluded_at": concluded_at,
+                "conclusion":   conclusion,
+                "results":      results,
+                "failures":     failures,
+                "system_info":  system_info,
+            }
+            new_entries.append(entry)
+            print(f"    OK — platform={platform} RHEL={rhel_version} conclusion={conclusion}")
 
     if args.include_periodic:
         print(f"Scanning public periodic job {args.periodic_job} ...")

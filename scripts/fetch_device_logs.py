@@ -95,7 +95,7 @@ def list_build_ids(job, limit):
 
 
 def test_step(job):
-    match = re.search(r"(e2e-[^/]+)$", job)
+    match = re.search(r"(e2e-[^/]+)(?:/[^/]+)?$", job)
     return match.group(1) if match else "e2e-full"
 
 
@@ -103,15 +103,41 @@ def build_base(job, build_id):
     return f"logs/{job}/{build_id}"
 
 
-def artifact_prefix(job, build_id):
+def artifact_prefix(job, build_id, base_path=None):
+    base = base_path or build_base(job, build_id)
     return (
-        f"{build_base(job, build_id)}/artifacts/{test_step(job)}/"
+        f"{base}/artifacts/{test_step(base if base_path else job)}/"
         "qe-rhel-jetson-pytest/artifacts"
     )
 
 
 def run_web_url(job, build_id):
     return f"https://gcs.ci.openshift.org/gcs/{BUCKET}/{build_base(job, build_id)}/"
+
+
+def run_web_url_from_base(base_path):
+    return f"https://gcs.ci.openshift.org/gcs/{BUCKET}/{base_path.rstrip('/')}/"
+
+
+def normalize_run_url(value):
+    """Convert a GCS/Prow URL or gs:// path into a run-root object path."""
+    value = value.strip().rstrip("/")
+    if value.startswith("gs://"):
+        bucket_and_path = value[5:]
+        bucket, _, path = bucket_and_path.partition("/")
+        if bucket != BUCKET:
+            raise ValueError(f"Expected gs://{BUCKET}/..., got gs://{bucket}/...")
+    elif f"/gcs/{BUCKET}/" in value:
+        path = value.split(f"/gcs/{BUCKET}/", 1)[1]
+    elif value.startswith(f"{GCS_OBJECT_BASE}/"):
+        path = value[len(GCS_OBJECT_BASE) + 1:]
+    else:
+        raise ValueError("Use a public GCS URL, storage URL, or gs:// public-bucket path")
+    if "/artifacts/" in path:
+        path = path.split("/artifacts/", 1)[0]
+    if not path or path.endswith("/"):
+        raise ValueError(f"Could not determine a run root from {value}")
+    return path
 
 
 def iso_timestamp(value):
@@ -284,16 +310,16 @@ def render_report(data):
 </main></body></html>"""
 
 
-def process_build(job, build_id, output_dir, sample_limit):
-    base = build_base(job, build_id)
-    run_url = run_web_url(job, build_id)
+def process_build(job, build_id, output_dir, sample_limit, base_path=None, run_url=None):
+    base = base_path or build_base(job, build_id)
+    run_url = run_url or run_web_url_from_base(base)
     finished = {}
     try:
         finished = fetch_json(f"{GCS_OBJECT_BASE}/{base}/finished.json")
     except (urllib.error.HTTPError, urllib.error.URLError):
         pass
 
-    prefix = f"{artifact_prefix(job, build_id)}/device_logs/"
+    prefix = f"{artifact_prefix(job, build_id, base_path)}/device_logs/"
     archive_item = None
     try:
         candidates = [
@@ -338,25 +364,45 @@ def process_build(job, build_id, output_dir, sample_limit):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--job", default=DEFAULT_JOB)
+    parser.add_argument(
+        "--run-url",
+        help="Process one exact Prow/GCS run or artifact URL instead of listing scheduled builds",
+    )
     parser.add_argument("--limit", type=int, default=5, help="Recent periodic builds to process")
     parser.add_argument("--output-dir", default="docs/ci-logs")
     parser.add_argument("--index-output", default="matrix_data/device_logs.json")
     parser.add_argument("--sample-limit", type=int, default=DEFAULT_SAMPLE_LIMIT)
     args = parser.parse_args()
 
-    try:
-        build_ids = list_build_ids(args.job, args.limit)
-    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
-        print(f"Unable to list public Prow builds: {exc}")
-        return 0
-
     runs = {}
-    for build_id in build_ids:
-        print(f"  device logs {build_id} — checking ...")
-        data = process_build(args.job, build_id, Path(args.output_dir), args.sample_limit)
+    if args.run_url:
+        base = normalize_run_url(args.run_url)
+        build_id = base.rsplit("/", 1)[-1]
+        print(f"  device logs {build_id} — checking exact run {base}")
+        data = process_build(
+            args.job,
+            build_id,
+            Path(args.output_dir),
+            args.sample_limit,
+            base_path=base,
+            run_url=run_web_url_from_base(base),
+        )
         runs[build_id] = data
         archive_state = "found" if data["archive"] else "not found"
         print(f"    archive {archive_state}; errors={data['summary']['errors']['count']} warnings={data['summary']['warnings']['count']}")
+    else:
+        try:
+            build_ids = list_build_ids(args.job, args.limit)
+        except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+            print(f"Unable to list public Prow builds: {exc}")
+            return 0
+
+        for build_id in build_ids:
+            print(f"  device logs {build_id} — checking ...")
+            data = process_build(args.job, build_id, Path(args.output_dir), args.sample_limit)
+            runs[build_id] = data
+            archive_state = "found" if data["archive"] else "not found"
+            print(f"    archive {archive_state}; errors={data['summary']['errors']['count']} warnings={data['summary']['warnings']['count']}")
 
     index = {
         "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
