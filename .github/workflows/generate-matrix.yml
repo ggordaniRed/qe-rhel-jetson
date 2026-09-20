@@ -12,6 +12,7 @@ on:
       - "matrix_data/**"
       - "scripts/generate_matrix.py"
       - "scripts/fetch_ci_data.py"
+      - "scripts/fetch_device_logs.py"
       - ".github/workflows/generate-matrix.yml"
   # Regenerate after a Beaker CI run completes
   workflow_run:
