@@ -61,13 +61,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y -qq libkrb5-dev krb5-user
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
+      # The dashboard, GCS fetcher, and device-log report use only Python's
+      # standard library. The full hardware-test requirements are not needed
+      # here and make Pages refreshes unnecessarily slow and fragile.
 
       #========================================================================
       # Step 1: Fetch Prow periodic job results from GCS (cron / manual only)
