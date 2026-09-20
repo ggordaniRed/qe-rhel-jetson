@@ -90,95 +90,8 @@ jobs:
           [ -n "$JOB" ] && echo "fetch=true" >> $GITHUB_OUTPUT || echo "fetch=false" >> $GITHUB_OUTPUT
           echo "Prow job to fetch: ${JOB:-none}"
 
-      - name: Install gsutil
-        if: steps.job.outputs.fetch == 'true'
-        run: |
-          curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt/google-cloud-sdk
-          echo "/opt/google-cloud-sdk/google-cloud-sdk/bin" >> $GITHUB_PATH
-
-      - name: Find latest Prow build
-        id: build
-        if: steps.job.outputs.fetch == 'true'
-        run: |
-          JOB="${{ steps.job.outputs.name }}"
-          GCS_JOB_PATH="gs://${{ env.GCS_PUBLIC_BUCKET }}/logs/${JOB}"
-          # Periodic Jetson artifacts are mirrored in the public bucket.
-          if ! LISTING=$(gsutil ls "${GCS_JOB_PATH}/" 2>&1); then
-            echo "::warning::Unable to list public Prow builds for ${JOB}; artifacts may be unavailable."
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          BUILD_ID=$(printf '%s\n' "$LISTING" \
-            | grep -oE '[0-9]{19}' | sort -n | tail -1 || true)
-          if [ -z "$BUILD_ID" ]; then
-            echo "::warning::No completed Prow builds found for ${JOB}; skipping Prow artifact fetch."
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "found=true" >> "$GITHUB_OUTPUT"
-          echo "id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
-          echo "path=${GCS_JOB_PATH}/${BUILD_ID}" >> "$GITHUB_OUTPUT"
-          echo "Latest build: ${BUILD_ID}"
-
-      - name: Wait for Prow build to finish
-        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
-        run: |
-          BUILD_PATH="${{ steps.build.outputs.path }}"
-          for i in $(seq 1 30); do
-            if gsutil ls "${BUILD_PATH}/finished.json" &>/dev/null; then
-              echo "Build finished."; break
-            fi
-            echo "  Not finished yet, waiting 60s... ($i/30)"
-            sleep 60
-          done
-          if ! gsutil ls "${BUILD_PATH}/finished.json" &>/dev/null; then
-            echo "Timed out waiting for build to finish"; exit 1
-          fi
-
-      - name: Download Prow artifacts
-        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
-        run: |
-          BUILD_PATH="${{ steps.build.outputs.path }}"
-          mkdir -p prow-results
-          gsutil cp "${BUILD_PATH}/finished.json" prow-results/
-          TEST_STEP=$(echo "${{ steps.job.outputs.name }}" | grep -oP 'e2e-\w+')
-          JUNIT_PATH="${BUILD_PATH}/artifacts/${TEST_STEP}/qe-rhel-jetson-pytest/artifacts/junit.xml"
-          gsutil cp "${JUNIT_PATH}" prow-results/junit.xml 2>/dev/null || \
-            gsutil cp "${BUILD_PATH}/artifacts/${TEST_STEP}/qe-rhel-jetson-pytest/junit.xml" prow-results/junit.xml 2>/dev/null || \
-            echo "junit.xml not found, skipping"
-          gsutil cp "${BUILD_PATH}/artifacts/${TEST_STEP}/qe-rhel-jetson-pytest/build-log.txt" prow-results/build-log.txt 2>/dev/null || true
-          ls -lh prow-results/
-
-      - name: Parse Prow results
-        id: prow
-        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
-        run: |
-          PASSED=$(python3 -c "
-          import json
-          with open('prow-results/finished.json') as f:
-              d = json.load(f)
-          print('true' if d.get('passed') else 'false')
-          " 2>/dev/null || echo "false")
-          RESULT=$(python3 -c "
-          import json
-          with open('prow-results/finished.json') as f:
-              d = json.load(f)
-          print(d.get('result', 'unknown'))
-          " 2>/dev/null || echo "unknown")
-          echo "passed=${PASSED}" >> $GITHUB_OUTPUT
-          echo "result=${RESULT}" >> $GITHUB_OUTPUT
-          echo "Prow result: ${RESULT}"
-
-      - name: Upload Prow raw artifacts
-        uses: actions/upload-artifact@v4
-        if: steps.job.outputs.fetch == 'true' && steps.build.outputs.found == 'true'
-        with:
-          name: prow-results-${{ steps.job.outputs.name }}-${{ steps.build.outputs.id }}
-          path: prow-results/
-          retention-days: 30
-
       #========================================================================
-      # Step 2: Fetch PR-triggered CI results and generate dashboard
+      # Step 2: Fetch PR/periodic results and generate dashboard
       #========================================================================
       - name: Fetch CI results from Prow/GCS
         run: |
@@ -225,26 +138,17 @@ jobs:
         if: always()
         run: |
           FETCH="${{ steps.job.outputs.fetch }}"
-          FOUND="${{ steps.build.outputs.found }}"
-          if [ "$FETCH" == "true" ] && [ "$FOUND" == "true" ]; then
+          if [ "$FETCH" == "true" ]; then
             JOB="${{ steps.job.outputs.name }}"
-            BUILD_ID="${{ steps.build.outputs.id }}"
-            RESULT="${{ steps.prow.outputs.result }}"
-            ICON=$([[ "${{ steps.prow.outputs.passed }}" == "true" ]] && echo "✅" || echo "❌")
             cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## ${ICON} Prow Periodic Job: ${RESULT}
+          ## 📊 Prow periodic data processed
 
           | Field | Value |
           |-------|-------|
           | **Job** | \`${JOB}\` |
-          | **Build ID** | \`${BUILD_ID}\` |
-          | **Result** | **${RESULT}** |
-          | **Prow Link** | [View on Prow](https://prow.ci.openshift.org/view/gs/${{ env.GCS_PUBLIC_BUCKET }}/logs/${JOB}/${BUILD_ID}) |
+          | **Device reports** | Generated under \`docs/ci-logs/\` when archives exist |
 
           EOF
-          fi
-          if [ "$FETCH" == "true" ] && [ "$FOUND" != "true" ]; then
-            echo "⚠️ Prow artifacts were unavailable; dashboard generated from existing matrix data." >> $GITHUB_STEP_SUMMARY
           fi
           echo "## 📊 Matrix dashboard regenerated" >> $GITHUB_STEP_SUMMARY
 
