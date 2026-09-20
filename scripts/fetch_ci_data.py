@@ -476,6 +476,12 @@ def main():
 
     if not new_entries:
         print("No new builds with junit results found.")
+        if args.periodic_only:
+            existing["runs"] = []
+            existing["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(existing, indent=2))
+            print(f"Wrote {output_path} (0 periodic runs)")
         return
 
     existing["runs"] = new_entries + existing.get("runs", [])

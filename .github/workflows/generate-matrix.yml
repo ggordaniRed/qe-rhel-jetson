@@ -70,6 +70,8 @@ jobs:
       #========================================================================
       - name: Fetch CI results from Prow/GCS
         run: |
+          # Never allow a checked-in PR result file to become the dashboard source.
+          rm -f matrix_data/ci_results.json matrix_data/device_logs.json
           python scripts/fetch_ci_data.py \
             --output matrix_data/ci_results.json \
             --include-periodic \
