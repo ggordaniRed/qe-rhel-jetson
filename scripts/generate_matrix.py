@@ -236,7 +236,19 @@ def parse_matrix(path):
 
 # ── CI results (from fetch_ci_data.py) ───────────────────────────────────────
 
-def load_ci_results(ci_json_path, default_version="9.7"):
+def load_device_log_index(index_path):
+    """Load report metadata keyed by periodic build ID."""
+    path = Path(index_path)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data.get("runs", {}) if isinstance(data, dict) else {}
+
+
+def load_ci_results(ci_json_path, default_version="9.7", device_log_index=None):
     """Return dict: (rhel_version, platform) → {results, run_url, system_info, recent_runs}."""
     path = Path(ci_json_path)
     if not path.exists():
@@ -245,6 +257,7 @@ def load_ci_results(ci_json_path, default_version="9.7"):
     out = {}
     # Track recent runs per (version, platform) for the history table
     recent = {}
+    device_log_index = device_log_index or {}
     for run in data.get("runs", []):
         version  = run.get("rhel_version") or default_version
         platform = run.get("platform")
@@ -252,6 +265,7 @@ def load_ci_results(ci_json_path, default_version="9.7"):
         if not platform or not results:
             continue
         key = (version, platform)
+        log_report = device_log_index.get(str(run.get("build_id", "")), {})
         recent.setdefault(key, []).append({
             "build_id":    run.get("build_id", ""),
             "pr":          run.get("pr", ""),
@@ -261,6 +275,7 @@ def load_ci_results(ci_json_path, default_version="9.7"):
             "results":     results,
             "source":      run.get("source", "pr"),
             "periodic_job":run.get("periodic_job", ""),
+            "report_path": log_report.get("report_path", ""),
         })
         if key not in out:
             out[key] = {
@@ -271,6 +286,7 @@ def load_ci_results(ci_json_path, default_version="9.7"):
                 "concluded_at":run.get("concluded_at", ""),
                 "conclusion":  run.get("conclusion", ""),
                 "pr":          run.get("pr", ""),
+                "report_path": log_report.get("report_path", ""),
             }
     for key in out:
         out[key]["recent_runs"] = recent.get(key, [])[:5]
@@ -399,10 +415,11 @@ def _run_col_header(r):
     success = r.get("conclusion") == "success"
     icon_cls = "run-success" if success else "run-failure"
     icon = "✓" if success else "✗"
+    target_url = r.get("report_path") or r.get("run_url", "")
     build_link = (
-        f'<a class="prow-link run-col-build" href="{r["run_url"]}" target="_blank" rel="noopener">'
+        f'<a class="prow-link run-col-build" href="{target_url}" target="_blank" rel="noopener">'
         f'{r["build_id"][-8:]}</a>'
-    ) if r.get("run_url") else (r.get("build_id", "")[-8:] or "—")
+    ) if target_url else (r.get("build_id", "")[-8:] or "—")
     return (
         f'<th class="run-col-th">'
         f'<span class="{icon_cls} run-col-icon">{icon}</span>'
@@ -437,9 +454,10 @@ def render_multi_run_table(tests, recent_runs):
         for r in recent_runs:
             s = r.get("results", {}).get(name, "na")
             cell_inner = status_cell(s, note)
-            if s == "failed" and r.get("run_url"):
+            target_url = r.get("report_path") or r.get("run_url", "")
+            if s == "failed" and target_url:
                 cell_inner = (
-                    f'<a href="{r["run_url"]}" target="_blank" rel="noopener" class="fail-link">'
+                    f'<a href="{target_url}" target="_blank" rel="noopener" class="fail-link">'
                     f'{cell_inner}</a>'
                 )
             cells += f'<td class="result-cell">{cell_inner}</td>'
@@ -504,7 +522,7 @@ def _failure_url(test_name, recent_runs):
     """Return the Prow URL of the most recent run where test_name failed."""
     for r in recent_runs:
         if r.get("results", {}).get(test_name) == "failed":
-            return r.get("run_url", "")
+            return r.get("report_path") or r.get("run_url", "")
     return ""
 
 
@@ -1028,6 +1046,8 @@ def main():
                     help="Output HTML file")
     ap.add_argument("--ci-results", default="matrix_data/ci_results.json",
                     help="CI results JSON from fetch_ci_data.py (optional)")
+    ap.add_argument("--device-log-index", default="matrix_data/device_logs.json",
+                    help="Device-log report index from fetch_device_logs.py (optional)")
     args = ap.parse_args()
 
     input_dir = Path(args.input)
@@ -1035,7 +1055,8 @@ def main():
         print(f"Error: input directory '{input_dir}' not found.", file=sys.stderr)
         sys.exit(1)
 
-    ci_map = load_ci_results(args.ci_results)
+    device_log_index = load_device_log_index(args.device_log_index)
+    ci_map = load_ci_results(args.ci_results, device_log_index=device_log_index)
     if ci_map:
         print(f"Loaded CI results for {len(ci_map)} platform/version combos")
 

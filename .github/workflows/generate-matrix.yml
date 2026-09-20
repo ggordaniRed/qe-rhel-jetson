@@ -198,12 +198,23 @@ jobs:
             "${PERIODIC_ARGS[@]}"
         continue-on-error: true
 
+      - name: Fetch and summarize device logs
+        if: steps.job.outputs.fetch == 'true'
+        run: |
+          python scripts/fetch_device_logs.py \
+            --job "${{ steps.job.outputs.name }}" \
+            --limit 5 \
+            --output-dir docs/ci-logs \
+            --index-output matrix_data/device_logs.json
+        continue-on-error: true
+
       - name: Generate dashboard
         run: |
           python scripts/generate_matrix.py \
             --input matrix_data \
             --output docs/jetson_test_matrix.html \
-            --ci-results matrix_data/ci_results.json
+            --ci-results matrix_data/ci_results.json \
+            --device-log-index matrix_data/device_logs.json
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
