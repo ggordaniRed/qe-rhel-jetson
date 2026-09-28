@@ -55,6 +55,13 @@ UEFI_LOADER_DIRS = [
 # Description used for the boot entry we create, so repeat runs can recognise it.
 UEFI_BOOT_ENTRY_LABEL = "WRAPPER-RHEL"
 
+# Screens the firmware shows on the way to a kernel. Each one needs an ENTER and
+# then more waiting — none of them is a failed boot.
+BOOT_SCREEN_PATTERNS = ["login:", "Give root password", "Use the ^ and v keys",
+                        "Enter to continue boot."]
+# How many such screens to click through before concluding the board is looping.
+MAX_BOOT_SCREEN_STEPS = int(os.environ.get("WRAPPER_MAX_BOOT_SCREEN_STEPS", "6"))
+
 LOG_DIR = Path(os.environ.get("WRAPPER_LOG_DIR", "wrapper_logs")).resolve()
 WRAPPER_LOG = LOG_DIR / "wrapper.log"
 SERIAL_LOG = LOG_DIR / "serial-console.log"
@@ -66,6 +73,25 @@ class SerialStreamDead(Exception):
     Distinct from a plain timeout: the device may be fine, but this pexpect
     session is useless and the console must be reopened.
     """
+
+
+def _as_serial_stream_dead(exc):
+    """Return the SerialStreamDead buried in `exc`, or None if there isn't one.
+
+    Jumpstarter opens the serial console on an anyio task group, and anyio
+    re-raises whatever escaped the group wrapped in an ExceptionGroup. So the
+    exception that actually leaves `client.serial.pexpect()` is a group, not our
+    SerialStreamDead — a plain `except SerialStreamDead` silently fails to match
+    it, and what should have been a console reconnect instead aborted the run.
+    Groups can nest, hence the recursion.
+    """
+    if isinstance(exc, SerialStreamDead):
+        return exc
+    for sub in getattr(exc, "exceptions", ()) or ():
+        found = _as_serial_stream_dead(sub)
+        if found is not None:
+            return found
+    return None
 
 
 def _setup_logging():
@@ -977,6 +1003,56 @@ def _uefi_wait_for_login_after_boot(p):
     return False
 
 
+def _press_enter(p):
+    """Send ENTER in both dialects: LF for Linux and GRUB, CR for EDK2 firmware.
+
+    The firmware's own screens ignore LF exactly like the UEFI Shell does, so a
+    bare sendline() leaves them sitting where they were — which is why the same
+    'Enter to continue boot.' screen used to match twice in a row.
+    """
+    p.sendline("")
+    p.send("\r")
+
+
+def _step_through_boot_screens(p, label):
+    """Click past the firmware's boot screens until a login prompt appears.
+
+    The board shows a run of 'press ENTER' screens (UEFI continue-boot, then the
+    GRUB menu) before the kernel even starts. Counting each one as a failed login
+    attempt is what made a perfectly healthy device look dead: all three attempts
+    were spent on screen transitions inside 15 seconds, long before any kernel
+    could have come up. Here a screen only advances the loop, and the wait ends on
+    a real timeout instead.
+
+    Returns True if a login prompt was reached.
+    """
+    for step in range(MAX_BOOT_SCREEN_STEPS):
+        try:
+            idx = p.expect_exact(BOOT_SCREEN_PATTERNS, timeout=UEFI_BOOT_TIMEOUT)
+        except SerialStreamDead:
+            raise
+        except Exception:
+            logger.warning("[wrapper] BOOT: no login prompt within %ds of %s",
+                           UEFI_BOOT_TIMEOUT, label)
+            return False
+
+        if idx == 0:
+            logger.info("[wrapper] BOOT: OK: login prompt reached after %s", label)
+            return True
+        if idx == 1:
+            logger.info("[wrapper] BOOT: emergency mode after %s", label)
+            return _handle_emergency(p)
+
+        screen = "GRUB menu" if idx == 2 else "UEFI continue-boot screen"
+        logger.info("[wrapper] BOOT: %s (step %d/%d), sending ENTER...",
+                    screen, step + 1, MAX_BOOT_SCREEN_STEPS)
+        _press_enter(p)
+
+    logger.warning("[wrapper] BOOT: still cycling through boot screens after %d steps — "
+                   "treating as a failed boot", MAX_BOOT_SCREEN_STEPS)
+    return False
+
+
 def _wait_for_login(p):
     """Wait for login: prompt, handling grub>, UEFI Shell, PXE GRUB menu, dutlink, and emergency mode.
 
@@ -1015,16 +1091,19 @@ def _wait_for_login(p):
                     got_login = True
                     break
                 logger.warning("[wrapper] UEFI Shell repair did not reach a login prompt")
-            elif idx == 4:
-                logger.info("[wrapper] GRUB boot menu detected, sending ENTER to boot default entry...")
-                p.sendline("")
-                time.sleep(5)
-                continue
-            elif idx == 5:
-                logger.info("[wrapper] UEFI boot screen detected, sending ENTER to continue boot...")
-                p.sendline("")
-                time.sleep(5)
-                continue
+            elif idx in (4, 5):
+                # Not a failure: the board is mid-boot and waiting on a keypress.
+                # Step through the remaining screens here rather than looping,
+                # which would spend the whole retry budget on screen transitions
+                # without ever giving a kernel time to start.
+                screen = ("GRUB boot menu" if idx == 4 else "UEFI boot screen")
+                logger.info("[wrapper] %s detected (attempt %d/3), sending ENTER and "
+                            "waiting up to %ds for boot...", screen, attempt + 1, UEFI_BOOT_TIMEOUT)
+                _press_enter(p)
+                if _step_through_boot_screens(p, screen):
+                    got_login = True
+                    break
+                # Screens stopped advancing — fall through and spend a real attempt.
         except SerialStreamDead:
             raise  # caller reopens the console; retrying here would hit the same dead stream
         except RuntimeError:
@@ -1153,7 +1232,12 @@ with env() as client:
                                 _configure_ssh_via_console(p)
                             booted_ok = True
                     break
-                except SerialStreamDead as e:
+                except BaseException as raised:
+                    # anyio wraps whatever escaped the serial task group in an
+                    # ExceptionGroup, so match on the contents, not the type.
+                    e = _as_serial_stream_dead(raised)
+                    if e is None:
+                        raise
                     if serial_attempt >= MAX_SERIAL_RECONNECTS:
                         logger.error("[wrapper] FAIL: serial console unusable after %d reconnects: %s",
                                      MAX_SERIAL_RECONNECTS, e)
