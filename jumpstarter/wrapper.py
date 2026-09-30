@@ -415,17 +415,39 @@ class UefiShell:
             else str(output)
         )
 
-    def find_loader(self) -> Optional[str]:
-        self.run("map -r", timeout=30)
-        for filesystem in self.FILESYSTEMS:
+    @classmethod
+    def filesystem_order(cls, mapping: str) -> Tuple[str, ...]:
+        entries = list(re.finditer(r"\b((?:FS|BLK)\d+):", mapping, re.IGNORECASE))
+        filesystems = []
+        for index, entry in enumerate(entries):
+            name = entry.group(1).upper()
+            if not name.startswith("FS"):
+                continue
+            end = entries[index + 1].start() if index + 1 < len(entries) else len(mapping)
+            device_path = mapping[entry.end() : end].upper()
+            filesystems.append((name, "/USB(" in device_path))
+
+        usb_filesystems = [name for name, is_usb in filesystems if is_usb]
+        other_filesystems = [name for name, is_usb in filesystems if not is_usb]
+        fallback_filesystems = [
+            name
+            for name in cls.FILESYSTEMS
+            if name not in usb_filesystems and name not in other_filesystems
+        ]
+        return tuple(usb_filesystems + other_filesystems + fallback_filesystems)
+
+    def find_loaders(self) -> Tuple[str, ...]:
+        mapping = self.run("map -r", timeout=30) or ""
+        loaders = []
+        for filesystem in self.filesystem_order(mapping):
             for directory, loader_names in self.LOADER_LOCATIONS:
                 listing = self.run(f"ls {filesystem}:{directory}", timeout=15)
                 if not listing:
                     continue
                 for loader_name in loader_names:
                     if loader_name.lower() in listing.lower():
-                        return f"{filesystem}:{directory}\\{loader_name}"
-        return None
+                        loaders.append(f"{filesystem}:{directory}\\{loader_name}")
+        return tuple(loaders)
 
     def boot(self) -> bool:
         self.drain()
@@ -434,32 +456,47 @@ class UefiShell:
             self.send("")
             if not self.wait_prompt():
                 return False
-        loader = self.find_loader()
-        if not loader:
+        loaders = self.find_loaders()
+        if not loaders:
             self.logger.warning("UEFI shell has no RHEL loader")
             return False
-        existing_entries = self.run("bcfg boot dump", timeout=30) or ""
-        if "WRAPPER-RHEL" not in existing_entries:
-            self.run(f'bcfg boot add 0 {loader} "WRAPPER-RHEL"', timeout=30)
-        self.send(loader)
-        try:
-            result = self.console.expect_exact(
-                ("login:", "Give root password", "Use the ^ and v keys") + self.PROMPTS,
-                timeout=self.settings.uefi_boot_timeout,
-            )
-        except Exception:
-            result = -1
-        if result == 0:
-            return True
-        if result == 1:
-            return EmergencyRecovery(
-                self.console, self.logger, self.settings.password
-            ).recover()
-        if result == 2:
-            self.console.sendline("")
-        else:
-            self.send("reset")
-        return wait_for_login_after_boot(self.console, self.settings, self.logger)
+        for loader in loaders:
+            self.logger.info("trying UEFI loader %s", loader)
+            self.send(loader)
+            try:
+                result = self.console.expect_exact(
+                    (
+                        "login:",
+                        "Give root password",
+                        "Use the ^ and v keys",
+                        "Access Denied",
+                    )
+                    + self.PROMPTS,
+                    timeout=self.settings.uefi_boot_timeout,
+                )
+            except Exception:
+                result = -1
+            if result == 0:
+                return True
+            if result == 1:
+                return EmergencyRecovery(
+                    self.console, self.logger, self.settings.password
+                ).recover()
+            if result == 2:
+                self.console.sendline("")
+                return wait_for_login_after_boot(
+                    self.console, self.settings, self.logger
+                )
+            if result == 3:
+                self.logger.warning("UEFI denied loader %s", loader)
+                self.wait_prompt()
+                continue
+            if result >= 4:
+                self.logger.warning("UEFI loader returned to the shell: %s", loader)
+                continue
+            self.logger.warning("UEFI loader timed out: %s", loader)
+            return False
+        return False
 
 
 class EmergencyRecovery:
@@ -561,18 +598,24 @@ def boot_screen_step(
         "Give root password",
         "Use the ^ and v keys",
         "Enter to continue boot.",
+        "Start PXE over",
     )
     for step in range(settings.max_boot_screen_steps):
         try:
             result = console.expect_exact(patterns, timeout=settings.uefi_boot_timeout)
         except Exception:
             return False
-        if result == 0:
+        prompt = patterns[result]
+        if prompt == "login:":
             return True
-        if result == 1:
+        if prompt == "Give root password":
             return EmergencyRecovery(console, logger, settings.password).recover()
-        console.sendline("")
-        console.send("\r")
+        if prompt == "Start PXE over":
+            logger.warning("network boot selected; aborting PXE")
+            console.send("\x1b")
+        else:
+            console.sendline("")
+            console.send("\r")
         logger.info(
             "boot screen %d/%d advanced", step + 1, settings.max_boot_screen_steps
         )
@@ -615,6 +658,7 @@ class BootCoordinator:
             "Shell>",
             "Use the ^ and v keys",
             "Enter to continue boot.",
+            "Start PXE over",
         )
         # Wake a device that is already sitting at a quiet Linux, GRUB, or
         # firmware prompt. EDK2 needs CR while the Linux console accepts LF.
@@ -629,22 +673,27 @@ class BootCoordinator:
                 result = self.serial_reader.expect(
                     console, patterns, timeout, "login prompt"
                 )
-                if result == 0:
+                prompt = patterns[result]
+                if prompt == "login:":
                     return True
-                if result == 1:
+                if prompt == "grub>":
                     console.sendline("exit")
                     time.sleep(10)
-                elif result == 2:
+                elif prompt == "Give root password":
                     if EmergencyRecovery(
                         console, self.logger, self.settings.password
                     ).recover():
                         return True
-                elif result == 3:
+                elif prompt == "Shell>":
                     if UefiShell(console, self.settings, self.logger).boot():
                         return True
-                else:
+                elif prompt == "Start PXE over":
+                    self.logger.warning("network boot selected; aborting PXE")
+                    console.send("\x1b")
+                elif prompt == "Enter to continue boot.":
                     console.sendline("")
                     console.send("\r")
+                else:
                     if boot_screen_step(console, self.settings, self.logger):
                         return True
             except SerialStreamDead:
