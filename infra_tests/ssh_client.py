@@ -1,19 +1,56 @@
+"""Typed SSH helpers used by the Jetson tests.
+
+Fabric's native result exposes the return code as ``exited``.  The test suite
+uses the clearer name ``exit_status``.  This module makes that translation with
+a named dataclass instead of creating an anonymous type at runtime.
 """
-SSH client infrastructure for Jetson RPM tests using fabric.
-Based on test_basic_locally.py from edge-ai-image-pipelines.
-"""
+
+from __future__ import annotations
 
 import logging
 import socket
 import time
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, cast
+
 import paramiko
-from fabric import Connection, Config
-from typing import Optional
+from fabric import Config, Connection
+from invoke.runners import Result as InvokeResult
+
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class CommandResult:
+    """Stable result returned by :class:`SSHConnection`."""
+
+    stdout: str
+    stderr: str
+    exit_status: int
+    ok: bool
+
+    @property
+    def failed(self) -> bool:
+        """Whether the remote command returned a non-zero status."""
+        return not self.ok
+
+
 class SSHConnection(Connection):
-    """Simple SSH wrapper that mimics FabricAdapter interface for compatibility with existing tests."""
+    """Fabric connection with explicit authentication and test-friendly results."""
+
+    _MAX_CONNECT_ATTEMPTS = 3
+    _RETRY_DELAY_SECONDS = 2
+    _MUTATING_DNF_COMMANDS = frozenset(
+        {
+            "install",
+            "remove",
+            "update",
+            "upgrade",
+            "dist-sync",
+            "group",
+            "config-manager",
+        }
+    )
 
     def __init__(
         self,
@@ -23,148 +60,112 @@ class SSHConnection(Connection):
         port: int = 22,
         timeout: int = 30,
         key_filename: Optional[str] = None,
-    ):
-        """
-        Initialize SSH connection.
-
-        Auth priority (handled by paramiko internally):
-          1. key_filename (if provided) — tried first
-          2. password (if provided) — fallback if key auth fails, or primary if no key
-
-        Args:
-            hostname: Hostname or IP address of the Jetson device
-            username: SSH username
-            password: SSH password (used for password auth; also used as key passphrase
-                      if key_filename points to an encrypted key)
-            port: SSH port (default: 22)
-            timeout: Connection timeout in seconds
-            key_filename: Path to private key file (e.g. ~/.ssh/id_rsa).
-                          Has priority over password — tried first.
-        """
-        auth_methods = []
-        if key_filename:
-            auth_methods.append(f"key({key_filename})")
-        if password:
-            auth_methods.append("password")
+    ) -> None:
+        self._validate_credentials(password, key_filename)
         logger.info(
-            "[SSH debug] Connecting: host=%s port=%s user=%s timeout=%ss auth=%s",
+            "SSH connection: host=%s port=%s timeout=%ss auth=%s",
             hostname,
             port,
-            username,
             timeout,
-            " -> ".join(auth_methods) or "none",
+            self._authentication_description(password, key_filename),
         )
 
-        # Step 1: quick TCP check (fails here if host unreachable or you need ProxyJump)
-        # also, saving the socket to pre_connected_sock so we can use it for the paramiko connection.
-        pre_connected_sock = None
-        try:
-            logger.info("[SSH debug] Step 1: TCP connect to %s:%s ...", hostname, port)
-            sock = socket.create_connection((hostname, port), timeout=timeout)
-            pre_connected_sock = sock
-            logger.info("[SSH debug] Step 1: TCP connect OK, and saved the socket")
-        except OSError as e:
-            logger.error("[SSH debug] Step 1 FAILED (TCP): %s", e)
-            raise
-
-        # Step 2: initialize fabric.Connection
-        # Auth priority: key_filename first, password fallback.
-        # Disable agent/look_for_keys so only explicitly provided creds are used
-        # (avoids random ~/.ssh/ keys exhausting MaxAuthTries on the server).
-        if not key_filename and not password:
-            raise ValueError("one of key_filename or password must be set")
-
-        connect_kwargs: dict = {
+        connected_socket = self._open_socket(hostname, port, timeout)
+        connect_kwargs: Dict[str, Any] = {
             "allow_agent": False,
             "look_for_keys": False,
-            "sock": pre_connected_sock, # use the pre-connected socket to avoid the paramiko's own address resolution (which handles IPv6→IPv4 fallback).
+            "sock": connected_socket,
         }
         if key_filename:
             connect_kwargs["key_filename"] = key_filename
-            connect_kwargs["passphrase"] = password  # decrypt key if encrypted, or None
+            connect_kwargs["passphrase"] = password
         if password:
-            connect_kwargs["password"] = password  # password auth (primary or fallback)
+            connect_kwargs["password"] = password
 
-        config = Config(overrides={"sudo": {"password": password}}) if password else Config()
-
+        fabric_config = (
+            Config(overrides={"sudo": {"password": password}}) if password else Config()
+        )
         super().__init__(
             host=hostname,
             user=username,
             port=port,
-            config=config,
+            config=fabric_config,
             connect_timeout=timeout,
             connect_kwargs=connect_kwargs,
         )
 
-        #This is needed because Beaker reprovisioning gives each Jetson a new host key every time, so it's never in known_hosts.
+        # Jetson devices are frequently reprovisioned and therefore receive a
+        # new host key. WarningPolicy preserves visibility without blocking CI.
         self.client.set_missing_host_key_policy(paramiko.WarningPolicy())
+        self._connect_with_retries(hostname, port, timeout)
+        self._open_sftp()
 
-        # Step 3: Fabric SSH connect (retry on failed handshake, or timeout- lab links can be flaky)
-        last_error = None
-        for attempt in range(1, 4):  # up to 3 attempts
+    @staticmethod
+    def _validate_credentials(
+        password: Optional[str], key_filename: Optional[str]
+    ) -> None:
+        if not password and not key_filename:
+            raise ValueError("one of password or key_filename must be set")
+
+    @staticmethod
+    def _authentication_description(
+        password: Optional[str], key_filename: Optional[str]
+    ) -> str:
+        methods = []
+        if key_filename:
+            methods.append("key")
+        if password:
+            methods.append("password")
+        return " -> ".join(methods)
+
+    @staticmethod
+    def _open_socket(hostname: str, port: int, timeout: int) -> socket.socket:
+        logger.info("Opening TCP connection to %s:%s", hostname, port)
+        return socket.create_connection((hostname, port), timeout=timeout)
+
+    def _connect_with_retries(self, hostname: str, port: int, timeout: int) -> None:
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, self._MAX_CONNECT_ATTEMPTS + 1):
             try:
                 logger.info(
-                    "[SSH debug] Step 3: Fabric connect (attempt %s/3) ...", attempt
+                    "Fabric SSH handshake attempt %d/%d",
+                    attempt,
+                    self._MAX_CONNECT_ATTEMPTS,
                 )
                 self.open()
-                logger.info("[SSH debug] Step 3: Fabric connect OK")
-                last_error = None
-                break
-            except (TimeoutError, OSError) as e:
-                last_error = e
-                logger.warning(
-                    "[SSH debug] Step 3: Attempt %s/3 failed: %s", attempt, e
-                )
-                if attempt < 3:
-                    time.sleep(2)
-                    # The previous socket is consumed/closed after a failed
-                    # handshake, so create a fresh one for the next attempt.
-                    try:
-                        new_sock = socket.create_connection((hostname, port), timeout=timeout)
-                        self.connect_kwargs["sock"] = new_sock
-                    except OSError as sock_err:
-                        logger.warning(
-                            "[SSH debug] Step 3: Socket reconnect failed: %s",
-                            sock_err,
-                        )
-        if last_error is not None:
-            logger.error(
-                "[SSH debug] Step 3: FAILED (Fabric) after 3 attempts: %s",
-                last_error,
-                exc_info=True,
-            )
-            raise last_error
+                return
+            except (TimeoutError, OSError) as error:
+                last_error = error
+                logger.warning("SSH handshake attempt %d failed: %s", attempt, error)
+                if attempt < self._MAX_CONNECT_ATTEMPTS:
+                    time.sleep(self._RETRY_DELAY_SECONDS)
+                    self.connect_kwargs["sock"] = self._open_socket(
+                        hostname, port, timeout
+                    )
+        assert last_error is not None
+        raise last_error
 
-        # Step 4: Fabric SSH sftp
+    def _open_sftp(self) -> None:
         try:
-            logger.info("[SSH debug] Step 4: sftp() ...")
             self.sftp()
-            logger.info("[SSH debug] Step 4: sftp() OK")
-        except Exception as e:
-            logger.error("[SSH debug] Step 4: FAILED (SFTP): %s", e, exc_info=True)
+        except Exception:
+            logger.exception("Unable to open SFTP connection")
             raise
 
     def _mutate_command(self, command: str) -> str:
-        MUTATING_DNF_COMMANDS = [
-            "install",
-            "remove",
-            "update",
-            "upgrade",
-            "dist-sync",
-            "group",
-            "config-manager",
-        ]
-        # Import here to avoid circular import (conftest imports ssh_client)
-        from tests_suites import conftest as _conftest
-        # if bootc is available, add --transient
-        # and --nogpgcheck because the image does not have the GPG key for internal Red Hat repositories
-        if _conftest.BOOTC_AVAILABLE:
-            cmd_parts = command.split()
-            if cmd_parts and cmd_parts[0] == "dnf":
-                if any(sub_cmd in cmd_parts for sub_cmd in MUTATING_DNF_COMMANDS):
-                    if "--transient" not in command:
-                        command += " --transient --nogpgcheck"
-        return command
+        """Add bootc's transient DNF flags when the test environment needs them."""
+        from tests_suites import conftest
+
+        if not bool(getattr(conftest, "BOOTC_AVAILABLE", False)):
+            return command
+        words = command.split()
+        if not words or words[0] != "dnf":
+            return command
+        if not self._MUTATING_DNF_COMMANDS.intersection(words[1:]):
+            return command
+        if "--transient" in words:
+            return command
+        return f"{command} --transient --nogpgcheck"
 
     def run(
         self,
@@ -173,46 +174,18 @@ class SSHConnection(Connection):
         fail_on_rc: bool = True,
         expect_rc: Optional[int] = 0,
         print_output: bool = True,
-    ):
-        """
-        Run a command and return result with stdout attribute.
-
-        Args:
-            command: Command to execute
-            timeout: Optional timeout in seconds
-
-        Returns:
-            Result object with stdout and exit_status attributes
-        """
-        command = self._mutate_command(command)
-
-        if print_output:
-            string_logger_formatted = f"\t\t[Fabric] Running command: {command}"
-            logger.info(string_logger_formatted)
-
-        result = super().run(command, timeout=timeout, warn=True, hide=True)
-        # Create a result-like object similar to Fabric's result
-        result = type(
-            "Result",
-            (),
-            {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exit_status": result.exited,
-                "ok": result.exited == 0,
-            },
-        )()
-
-        if print_output:
-            string_logger_formatted = f"\t\t[Fabric] stdout: \n{result.stdout}"
-            logger.info(string_logger_formatted)
-
-        if fail_on_rc and result.exit_status != expect_rc:
-            raise RuntimeError(
-                f"Command '{command}' failed with exit status {result.exit_status}. Expected {expect_rc}. Error: {result.stderr}. \n\t\tOutput: \n{result.stdout}"
-            )
-
-        return result
+        stream_output: bool = False,
+    ) -> CommandResult:
+        """Run a command and return a typed result."""
+        return self._execute(
+            command=command,
+            timeout=timeout,
+            fail_on_rc=fail_on_rc,
+            expect_rc=expect_rc,
+            print_output=print_output,
+            stream_output=stream_output,
+            use_sudo=False,
+        )
 
     def sudo(
         self,
@@ -221,44 +194,70 @@ class SSHConnection(Connection):
         fail_on_rc: bool = True,
         expect_rc: Optional[int] = 0,
         print_output: bool = True,
-    ):
-        """
-        Run a command with sudo.
+        stream_output: bool = False,
+    ) -> CommandResult:
+        """Run a command through sudo and return a typed result."""
+        return self._execute(
+            command=command,
+            timeout=timeout,
+            fail_on_rc=fail_on_rc,
+            expect_rc=expect_rc,
+            print_output=print_output,
+            stream_output=stream_output,
+            use_sudo=True,
+        )
 
-        Args:
-            command: Command to execute with sudo
-            timeout: Optional timeout in seconds
-            fail_on_rc: Whether to raise an exception if the command fails
-            expect_rc: The expected exit status of the command
-        Returns:
-            Result object with stdout and exit_status attributes
-        """
-        command = self._mutate_command(command)
-
+    def _execute(
+        self,
+        command: str,
+        timeout: Optional[int],
+        fail_on_rc: bool,
+        expect_rc: Optional[int],
+        print_output: bool,
+        stream_output: bool,
+        use_sudo: bool,
+    ) -> CommandResult:
+        prepared_command = self._mutate_command(command)
         if print_output:
-            string_logger_formatted = f"\t\t[Fabric] Running command: {command}"
-            logger.info(string_logger_formatted)
+            logger.info("[Fabric] Running command: %s", prepared_command)
 
-        result = super().sudo(command, timeout=timeout, warn=True, hide=True)
-        # Create a result-like object similar to Fabric's result
-        result = type(
-            "Result",
-            (),
-            {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exit_status": result.exited,
-                "ok": result.exited == 0,
-            },
-        )()
-
-        if print_output:
-            string_logger_formatted = f"\t\t[Fabric] stdout: \n{result.stdout}"
-            logger.info(string_logger_formatted)
-
-        if fail_on_rc and result.exit_status != expect_rc:
-            raise RuntimeError(
-                f"Command '{command}' failed with exit status {result.exit_status}. Expected {expect_rc}. Error: {result.stderr}. \n\t\tOutput: \n{result.stdout}"
+        if use_sudo:
+            fabric_result = super().sudo(
+                prepared_command,
+                timeout=timeout,
+                warn=True,
+                hide=not stream_output,
+            )
+        else:
+            fabric_result = super().run(
+                prepared_command,
+                timeout=timeout,
+                warn=True,
+                hide=not stream_output,
             )
 
-        return result
+        typed_result = self._to_command_result(fabric_result)
+        if print_output and not stream_output:
+            logger.info("[Fabric] stdout:\n%s", typed_result.stdout)
+        if fail_on_rc and typed_result.exit_status != expect_rc:
+            raise RuntimeError(
+                f"Command {prepared_command!r} failed with exit status "
+                f"{typed_result.exit_status}; expected {expect_rc}. "
+                f"Error: {typed_result.stderr}\nOutput:\n{typed_result.stdout}"
+            )
+        return typed_result
+
+    @staticmethod
+    def _to_command_result(result: Any) -> CommandResult:
+        """Convert Fabric's dynamically typed return value once at the boundary."""
+        fabric_result = cast(InvokeResult, result)
+        exit_status = int(fabric_result.exited)
+        return CommandResult(
+            stdout=str(fabric_result.stdout),
+            stderr=str(fabric_result.stderr),
+            exit_status=exit_status,
+            ok=exit_status == 0,
+        )
+
+
+__all__ = ["CommandResult", "SSHConnection"]

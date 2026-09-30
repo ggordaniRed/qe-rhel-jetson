@@ -1,4 +1,5 @@
 """SSH infrastructure for Jetson RPM tests."""
-from .ssh_client import SSHConnection
 
-__all__ = ['SSHConnection']
+from .ssh_client import CommandResult, SSHConnection
+
+__all__ = ["CommandResult", "SSHConnection"]

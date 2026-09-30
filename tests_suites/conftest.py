@@ -184,7 +184,23 @@ sslcacert=/etc/pki/tls/certs/ca-bundle.crt
         ssh.sudo("dnf clean all")
     
     logger.info("[Setup] Ensuring nvidia-container-toolkit-base is installed...")
-    ssh.sudo("dnf install -y nvidia-container-toolkit-base")
+    toolkit_package = ssh.run(
+        "rpm -q nvidia-container-toolkit-base",
+        fail_on_rc=False,
+        print_output=False,
+    )
+    if toolkit_package.exit_status == 0:
+        logger.info(
+            "[Setup] NVIDIA Container Toolkit already installed: %s",
+            toolkit_package.stdout.strip(),
+        )
+    else:
+        ssh.sudo(
+            "dnf install -y nvidia-container-toolkit-base "
+            "--setopt=timeout=30 --setopt=retries=3",
+            timeout=600,
+            stream_output=True,
+        )
     
     logger.info("[Setup] Checking NVIDIA CDI status...")
     # Generate CDI if it doesn't exist or isn't listed

@@ -16,9 +16,9 @@ _target_versions:
     rhel_version: "9.8"
     l4t_version: "36.5.2"
     uefi_firmware_version: "36.5.2"
-    kernel_version:
-      - "5.14.0-687.39.1"
-      - "5.14.0-687.44.1"
+    # Accept the RHEL 9.8 kernel z-stream. Exact certification runs should pin
+    # IMAGE_REF and may override this with --target-kernel-version.
+    kernel_version: "5.14.0-687."
 
   "6.2.2":
     rhel_version: "9.8"
@@ -27,10 +27,9 @@ _target_versions:
       - "36.5.0"
       - "36.5.1"
       - "36.5.2"
-    kernel_version:
-      - "5.14.0-687.10.1"
-      - "5.14.0-687.12.1"
-      - "5.14.0-687.31.1"
+    # Accept the RHEL 9.8 kernel z-stream. Exact certification runs should pin
+    # IMAGE_REF and may override this with --target-kernel-version.
+    kernel_version: "5.14.0-687."
 
 # -----------------------------------------------------------------------------
 # Shared templates (anchors for merge; not used as match keys)
@@ -195,7 +194,6 @@ _templates:
     "USB 3.2 Gen2": {capable_speed: "10000M", ports: 3 }, # 10000M = USB3.2 Gen2
     "USB 2.0": {capable_speed: "480M", ports: 3 }, # 480M = USB2.0
   }
-
 
 
 

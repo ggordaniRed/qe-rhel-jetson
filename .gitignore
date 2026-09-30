@@ -34,3 +34,9 @@ test-results/
 # Jumpstarter resources
 config.toml
 output/
+
+# Local Jumpstarter debugging and archived implementations
+/jumpstarter/run_flash_and_wrapper.sh
+/jumpstarter/run_flash_and_wrapper_legacy.sh
+/jumpstarter/wrapper_legacy.py
+/infra_tests/ssh_client_legacy.py
