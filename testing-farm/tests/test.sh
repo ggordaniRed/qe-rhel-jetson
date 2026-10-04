@@ -18,6 +18,18 @@ trap cleanup EXIT
 : "${JETSON_HOST:?JETSON_HOST is required}"
 : "${JETSON_USERNAME:?JETSON_USERNAME is required}"
 if [[ -z "${JETSON_PASSWORD:-}" && -z "${SSH_PRIVATE_KEY:-}" ]]; then
+    if [[ -z "${SSH_PRIVATE_KEY_B64:-}" ]]; then
+        echo "JETSON_PASSWORD or SSH_PRIVATE_KEY is required" >&2
+        exit 2
+    fi
+fi
+
+if [[ -n "${SSH_PRIVATE_KEY_B64:-}" ]]; then
+    SSH_PRIVATE_KEY="$(printf '%s' "${SSH_PRIVATE_KEY_B64}" | base64 --decode)"
+    export SSH_PRIVATE_KEY
+fi
+
+if [[ -z "${JETSON_PASSWORD:-}" && -z "${SSH_PRIVATE_KEY:-}" ]]; then
     echo "JETSON_PASSWORD or SSH_PRIVATE_KEY is required" >&2
     exit 2
 fi

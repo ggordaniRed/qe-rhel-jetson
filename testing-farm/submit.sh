@@ -23,6 +23,14 @@ TIMEOUT="${TIMEOUT:-240}"
 QE_REPO_URL="${QE_REPO_URL:-${GIT_URL}}"
 QE_REPO_REF="${QE_REPO_REF:-${GIT_REF}}"
 SSH_SMOKE_ONLY="${SSH_SMOKE_ONLY:-0}"
+SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64:-}"
+
+# A PEM/OpenSSH key contains newlines. Encode it before passing it as one
+# Testing Farm CLI secret argument; otherwise the key's "BEGIN OPENSSH" line
+# is parsed as another CLI option.
+if [[ -z "${SSH_PRIVATE_KEY_B64}" && -n "${SSH_PRIVATE_KEY:-}" ]]; then
+    SSH_PRIVATE_KEY_B64=$(printf '%s' "${SSH_PRIVATE_KEY}" | base64 | tr -d '\n')
+fi
 
 if ! command -v testing-farm >/dev/null 2>&1; then
     echo "testing-farm CLI is required; install it with: python3 -m pip install tft-cli" >&2
@@ -52,8 +60,8 @@ fi
 if [[ -n "${JETSON_PASSWORD:-}" ]]; then
     args+=(--secret "JETSON_PASSWORD=${JETSON_PASSWORD}")
 fi
-if [[ -n "${SSH_PRIVATE_KEY:-}" ]]; then
-    args+=(--secret "SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY}")
+if [[ -n "${SSH_PRIVATE_KEY_B64}" ]]; then
+    args+=(--secret "SSH_PRIVATE_KEY_B64=${SSH_PRIVATE_KEY_B64}")
 fi
 
 echo "Submitting direct-SSH Testing Farm request"
