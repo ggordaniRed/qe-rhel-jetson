@@ -33,7 +33,7 @@
     restore_boot_order: true
   
   vars_files:
-    - vars/secrets.yml  # Contains registry_user and registry_pass (encrypted with ansible-vault)
+    - "{{ ansible_secrets_file | default('vars/secrets.yml') }}"  # Contains registry_user and registry_pass
   
   pre_tasks:
     - name: Validate required variables
@@ -405,4 +405,3 @@
           PXE entry: Boot{{ pxe_entry }}
           ========================================
       tags: [verify]
-

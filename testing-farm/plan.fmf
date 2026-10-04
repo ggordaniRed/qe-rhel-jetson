@@ -14,7 +14,7 @@ prepare:
       how: shell
       script: |
           dnf install -y git python3 python3-pip ca-certificates
-          python3 -m pip install pytest paramiko fabric PyYAML requests
+          python3 -m pip install ansible-core pytest paramiko fabric PyYAML requests
 
 discover:
     how: fmf

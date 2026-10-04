@@ -86,6 +86,31 @@ bash testing-farm/submit.sh
 The VM will connect as `root` and print the Beaker hostname, user, RHEL
 release, and kernel. Unset `SSH_SMOKE_ONLY` to run the full pytest suite.
 
+## Optional Ansible bootc deployment
+
+Set `ANSIBLE_BOOTC=1` to deploy a bootc image with the existing Beaker Ansible
+playbook before the SSH smoke test or pytest suite. This is opt-in; without it,
+the runner only connects to the existing OS.
+
+```bash
+export ANSIBLE_BOOTC=1
+export BOOTC_IMAGE_BASE="registry.gitlab.com/redhat/rhel/sst/orin-sidecar/nvidia-jetson-sidecar/rhel-9.7"
+export BOOTC_IMAGE_TAG="411ed591"
+export REGISTRY_URL="registry.gitlab.com"
+export REGISTRY_USER="<registry-user>"
+export REGISTRY_PASSWORD="<registry-token>"
+export ANSIBLE_AUTO_REBOOT=true
+export ANSIBLE_RESTORE_BOOT_ORDER=true
+export ANSIBLE_RESERVATION_HOURS=24
+
+export SSH_SMOKE_ONLY=1
+bash testing-farm/submit.sh
+```
+
+Registry credentials are passed as Testing Farm secrets. The playbook installs
+the image, reboots when enabled, waits for SSH, and then runs the smoke test or
+pytest. Do not enable this while another job is using the same Beaker machine.
+
 For key authentication, pass the private key as a runtime secret:
 
 ```bash

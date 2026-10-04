@@ -6,11 +6,20 @@ set -o pipefail
 
 WORK_DIR="$(mktemp -d)"
 SSH_KEY_FILE=""
+ANSIBLE_SECRETS_FILE=""
+ANSIBLE_CONNECTION_VARS_FILE=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+QE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 cleanup() {
     if [[ -n "${SSH_KEY_FILE}" ]]; then
         rm -f "${SSH_KEY_FILE}"
+    fi
+    if [[ -n "${ANSIBLE_SECRETS_FILE}" ]]; then
+        rm -f "${ANSIBLE_SECRETS_FILE}"
+    fi
+    if [[ -n "${ANSIBLE_CONNECTION_VARS_FILE}" ]]; then
+        rm -f "${ANSIBLE_CONNECTION_VARS_FILE}"
     fi
     rm -rf "${WORK_DIR}"
 }
@@ -44,6 +53,62 @@ if [[ -n "${SSH_PRIVATE_KEY:-}" ]]; then
     printf '%s\n' "${SSH_PRIVATE_KEY}" > "${SSH_KEY_FILE}"
     chmod 600 "${SSH_KEY_FILE}"
     export JETSON_KEY_PATH="${SSH_KEY_FILE}"
+fi
+
+if [[ "${ANSIBLE_BOOTC:-0}" == "1" || "${ANSIBLE_BOOTC:-0}" == "true" ]]; then
+    : "${BOOTC_IMAGE_BASE:?BOOTC_IMAGE_BASE is required when ANSIBLE_BOOTC=1}"
+    : "${BOOTC_IMAGE_TAG:?BOOTC_IMAGE_TAG is required when ANSIBLE_BOOTC=1}"
+    : "${REGISTRY_USER:?REGISTRY_USER is required when ANSIBLE_BOOTC=1}"
+    : "${REGISTRY_PASSWORD:?REGISTRY_PASSWORD is required when ANSIBLE_BOOTC=1}"
+
+    ANSIBLE_SECRETS_FILE="${WORK_DIR}/ansible-secrets.yml"
+    ANSIBLE_SECRETS_FILE="${ANSIBLE_SECRETS_FILE}" "${PYTHON}" - <<'PY'
+import os
+from pathlib import Path
+import yaml
+
+path = Path(os.environ["ANSIBLE_SECRETS_FILE"])
+path.write_text(yaml.safe_dump({
+    "registry_user": os.environ["REGISTRY_USER"],
+    "registry_pass": os.environ["REGISTRY_PASSWORD"],
+}, default_flow_style=False))
+os.chmod(path, 0o600)
+PY
+
+    echo "[testing-farm] Deploying bootc with Ansible"
+    ansible_args=(
+        -i "${QE_ROOT}/beaker/ansible/inventory.yml"
+        "${QE_ROOT}/beaker/ansible/install_bootc.yml"
+        -e "target_host=${JETSON_HOST}"
+        -e "ansible_user=${JETSON_USERNAME}"
+        -e "bootc_image_base=${BOOTC_IMAGE_BASE}"
+        -e "bootc_image_tag=${BOOTC_IMAGE_TAG}"
+        -e "registry_url=${REGISTRY_URL:-registry.gitlab.com}"
+        -e "ansible_secrets_file=${ANSIBLE_SECRETS_FILE}"
+        -e "auto_reboot=${ANSIBLE_AUTO_REBOOT:-true}"
+        -e "restore_boot_order=${ANSIBLE_RESTORE_BOOT_ORDER:-true}"
+        -e "reservation_hours=${ANSIBLE_RESERVATION_HOURS:-24}"
+    )
+    if [[ -n "${SSH_KEY_FILE}" ]]; then
+        ansible_args+=("-e" "ansible_ssh_private_key_file=${SSH_KEY_FILE}")
+    fi
+    if [[ -n "${JETSON_PASSWORD:-}" ]]; then
+        ANSIBLE_CONNECTION_VARS_FILE="${WORK_DIR}/ansible-connection-vars.yml"
+        ANSIBLE_CONNECTION_VARS_FILE="${ANSIBLE_CONNECTION_VARS_FILE}" "${PYTHON}" - <<'PY'
+import os
+from pathlib import Path
+import yaml
+
+path = Path(os.environ["ANSIBLE_CONNECTION_VARS_FILE"])
+path.write_text(yaml.safe_dump({
+    "ansible_password": os.environ["JETSON_PASSWORD"],
+    "ansible_become_password": os.environ["JETSON_PASSWORD"],
+}, default_flow_style=False))
+os.chmod(path, 0o600)
+PY
+        ansible_args+=("-e" "@${ANSIBLE_CONNECTION_VARS_FILE}")
+    fi
+    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook "${ansible_args[@]}"
 fi
 
 if [[ "${SSH_SMOKE_ONLY:-0}" == "1" ]]; then

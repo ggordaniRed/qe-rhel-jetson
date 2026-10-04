@@ -36,6 +36,22 @@ QE_REPO_URL="${QE_REPO_URL:-${GIT_AUTH_URL}}"
 QE_REPO_REF="${QE_REPO_REF:-${GIT_REF}}"
 SSH_SMOKE_ONLY="${SSH_SMOKE_ONLY:-0}"
 SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64:-}"
+ANSIBLE_BOOTC="${ANSIBLE_BOOTC:-0}"
+BOOTC_IMAGE_BASE="${BOOTC_IMAGE_BASE:-}"
+BOOTC_IMAGE_TAG="${BOOTC_IMAGE_TAG:-}"
+REGISTRY_URL="${REGISTRY_URL:-registry.gitlab.com}"
+REGISTRY_USER="${REGISTRY_USER:-}"
+REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-}"
+ANSIBLE_AUTO_REBOOT="${ANSIBLE_AUTO_REBOOT:-true}"
+ANSIBLE_RESTORE_BOOT_ORDER="${ANSIBLE_RESTORE_BOOT_ORDER:-true}"
+ANSIBLE_RESERVATION_HOURS="${ANSIBLE_RESERVATION_HOURS:-24}"
+
+if [[ "${ANSIBLE_BOOTC}" == "1" || "${ANSIBLE_BOOTC}" == "true" ]]; then
+    : "${BOOTC_IMAGE_BASE:?Set BOOTC_IMAGE_BASE when ANSIBLE_BOOTC=1}"
+    : "${BOOTC_IMAGE_TAG:?Set BOOTC_IMAGE_TAG when ANSIBLE_BOOTC=1}"
+    : "${REGISTRY_USER:?Set REGISTRY_USER when ANSIBLE_BOOTC=1}"
+    : "${REGISTRY_PASSWORD:?Set REGISTRY_PASSWORD when ANSIBLE_BOOTC=1}"
+fi
 
 # A PEM/OpenSSH key contains newlines. Encode it before passing it as one
 # Testing Farm CLI secret argument; otherwise the key's "BEGIN OPENSSH" line
@@ -63,7 +79,21 @@ args=(
     --secret "QE_REPO_URL=${QE_REPO_URL}"
     --environment "QE_REPO_REF=${QE_REPO_REF}"
     --environment "SSH_SMOKE_ONLY=${SSH_SMOKE_ONLY}"
+    --environment "ANSIBLE_BOOTC=${ANSIBLE_BOOTC}"
 )
+
+if [[ "${ANSIBLE_BOOTC}" == "1" || "${ANSIBLE_BOOTC}" == "true" ]]; then
+    args+=(
+        --environment "BOOTC_IMAGE_BASE=${BOOTC_IMAGE_BASE}"
+        --environment "BOOTC_IMAGE_TAG=${BOOTC_IMAGE_TAG}"
+        --environment "REGISTRY_URL=${REGISTRY_URL}"
+        --environment "ANSIBLE_AUTO_REBOOT=${ANSIBLE_AUTO_REBOOT}"
+        --environment "ANSIBLE_RESTORE_BOOT_ORDER=${ANSIBLE_RESTORE_BOOT_ORDER}"
+        --environment "ANSIBLE_RESERVATION_HOURS=${ANSIBLE_RESERVATION_HOURS}"
+        --secret "REGISTRY_USER=${REGISTRY_USER}"
+        --secret "REGISTRY_PASSWORD=${REGISTRY_PASSWORD}"
+    )
+fi
 
 if [[ -n "${TARGET_KERNEL_VERSION:-}" ]]; then
     args+=(--environment "TARGET_KERNEL_VERSION=${TARGET_KERNEL_VERSION}")
