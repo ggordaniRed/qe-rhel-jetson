@@ -1,6 +1,6 @@
 # qe-rhel-jetson
 
-Pytest-based hardware test suite for NVIDIA Jetson devices on RHEL, with deployment automation via Beaker and Jumpstarter.
+Pytest-based hardware test suite for NVIDIA Jetson devices on RHEL, with deployment automation via Beaker and Jumpstarter.Based on ssh connection and console.
 
 ## Jetson Structure
 
