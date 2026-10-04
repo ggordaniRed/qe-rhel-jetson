@@ -62,6 +62,7 @@
       ansible.builtin.dnf:
         name: podman
         state: present
+        use_backend: dnf4
       tags: [podman]
     
     #=========================================================================
@@ -312,6 +313,7 @@
         name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ rhel_major_version }}.noarch.rpm"
         state: present
         disable_gpg_check: true
+        use_backend: dnf4
       failed_when: false
       tags: [packages]
 
@@ -323,6 +325,7 @@
           - usbutils
           - pciutils
         state: present
+        use_backend: dnf4
       failed_when: false
       tags: [packages]
 
