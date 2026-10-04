@@ -36,12 +36,15 @@
     - "{{ ansible_secrets_file | default('vars/secrets.yml') }}"  # Contains registry_user and registry_pass
   
   pre_tasks:
-    - name: Validate required variables
+    - name: Validate optional registry credentials
       ansible.builtin.assert:
         that:
-          - registry_user is defined
-          - registry_pass is defined
-        fail_msg: "registry_user and registry_pass are required. Use -e 'registry_user=xxx registry_pass=xxx'"
+          - >-
+            (registry_user | default('') | length == 0 and
+             registry_pass | default('') | length == 0) or
+            (registry_user | default('') | length > 0 and
+             registry_pass | default('') | length > 0)
+        fail_msg: "Provide both registry_user and registry_pass for a private registry, or omit both for a public image"
     
     - name: Display target information
       ansible.builtin.debug:
@@ -105,6 +108,9 @@
         cmd: podman login {{ registry_url }} -u "{{ registry_user }}" -p "{{ registry_pass }}"
       no_log: true  # Don't log credentials
       changed_when: true
+      when:
+        - registry_user | default('') | length > 0
+        - registry_pass | default('') | length > 0
       tags: [registry]
     
     #=========================================================================

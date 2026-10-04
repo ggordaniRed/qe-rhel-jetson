@@ -58,8 +58,10 @@ fi
 if [[ "${ANSIBLE_BOOTC:-0}" == "1" || "${ANSIBLE_BOOTC:-0}" == "true" ]]; then
     : "${BOOTC_IMAGE_BASE:?BOOTC_IMAGE_BASE is required when ANSIBLE_BOOTC=1}"
     : "${BOOTC_IMAGE_TAG:?BOOTC_IMAGE_TAG is required when ANSIBLE_BOOTC=1}"
-    : "${REGISTRY_USER:?REGISTRY_USER is required when ANSIBLE_BOOTC=1}"
-    : "${REGISTRY_PASSWORD:?REGISTRY_PASSWORD is required when ANSIBLE_BOOTC=1}"
+    if [[ -n "${REGISTRY_USER:-}" && -z "${REGISTRY_PASSWORD:-}" ]] || [[ -z "${REGISTRY_USER:-}" && -n "${REGISTRY_PASSWORD:-}" ]]; then
+        echo "Set both REGISTRY_USER and REGISTRY_PASSWORD, or neither for a public image" >&2
+        exit 2
+    fi
 
     ANSIBLE_SECRETS_FILE="${WORK_DIR}/ansible-secrets.yml"
     ANSIBLE_SECRETS_FILE="${ANSIBLE_SECRETS_FILE}" "${PYTHON}" - <<'PY'
@@ -68,10 +70,13 @@ from pathlib import Path
 import yaml
 
 path = Path(os.environ["ANSIBLE_SECRETS_FILE"])
-path.write_text(yaml.safe_dump({
-    "registry_user": os.environ["REGISTRY_USER"],
-    "registry_pass": os.environ["REGISTRY_PASSWORD"],
-}, default_flow_style=False))
+secrets = {}
+if os.environ.get("REGISTRY_USER"):
+    secrets = {
+        "registry_user": os.environ["REGISTRY_USER"],
+        "registry_pass": os.environ["REGISTRY_PASSWORD"],
+    }
+path.write_text(yaml.safe_dump(secrets, default_flow_style=False))
 os.chmod(path, 0o600)
 PY
 

@@ -49,8 +49,10 @@ ANSIBLE_RESERVATION_HOURS="${ANSIBLE_RESERVATION_HOURS:-24}"
 if [[ "${ANSIBLE_BOOTC}" == "1" || "${ANSIBLE_BOOTC}" == "true" ]]; then
     : "${BOOTC_IMAGE_BASE:?Set BOOTC_IMAGE_BASE when ANSIBLE_BOOTC=1}"
     : "${BOOTC_IMAGE_TAG:?Set BOOTC_IMAGE_TAG when ANSIBLE_BOOTC=1}"
-    : "${REGISTRY_USER:?Set REGISTRY_USER when ANSIBLE_BOOTC=1}"
-    : "${REGISTRY_PASSWORD:?Set REGISTRY_PASSWORD when ANSIBLE_BOOTC=1}"
+fi
+if [[ -n "${REGISTRY_USER}" && -z "${REGISTRY_PASSWORD}" ]] || [[ -z "${REGISTRY_USER}" && -n "${REGISTRY_PASSWORD}" ]]; then
+    echo "Set both REGISTRY_USER and REGISTRY_PASSWORD, or neither for a public image" >&2
+    exit 2
 fi
 
 # A PEM/OpenSSH key contains newlines. Encode it before passing it as one
@@ -90,9 +92,13 @@ if [[ "${ANSIBLE_BOOTC}" == "1" || "${ANSIBLE_BOOTC}" == "true" ]]; then
         --environment "ANSIBLE_AUTO_REBOOT=${ANSIBLE_AUTO_REBOOT}"
         --environment "ANSIBLE_RESTORE_BOOT_ORDER=${ANSIBLE_RESTORE_BOOT_ORDER}"
         --environment "ANSIBLE_RESERVATION_HOURS=${ANSIBLE_RESERVATION_HOURS}"
-        --secret "REGISTRY_USER=${REGISTRY_USER}"
-        --secret "REGISTRY_PASSWORD=${REGISTRY_PASSWORD}"
     )
+    if [[ -n "${REGISTRY_USER}" ]]; then
+        args+=(
+            --secret "REGISTRY_USER=${REGISTRY_USER}"
+            --secret "REGISTRY_PASSWORD=${REGISTRY_PASSWORD}"
+        )
+    fi
 fi
 
 if [[ -n "${TARGET_KERNEL_VERSION:-}" ]]; then

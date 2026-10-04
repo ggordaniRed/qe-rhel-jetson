@@ -97,8 +97,6 @@ export ANSIBLE_BOOTC=1
 export BOOTC_IMAGE_BASE="quay.io/<quay-namespace>/<bootc-image>"
 export BOOTC_IMAGE_TAG="411ed591"
 export REGISTRY_URL="quay.io"
-export REGISTRY_USER="<quay-robot-user>"
-export REGISTRY_PASSWORD="<quay-robot-token>"
 export ANSIBLE_AUTO_REBOOT=true
 export ANSIBLE_RESTORE_BOOT_ORDER=true
 export ANSIBLE_RESERVATION_HOURS=24
@@ -107,9 +105,11 @@ export SSH_SMOKE_ONLY=1
 bash testing-farm/submit.sh
 ```
 
-Registry credentials are passed as Testing Farm secrets. The playbook installs
-the image, reboots when enabled, waits for SSH, and then runs the smoke test or
-pytest. Do not enable this while another job is using the same Beaker machine.
+For this public image, no registry credentials are required. For a private
+image, additionally set `REGISTRY_USER` and `REGISTRY_PASSWORD`; they are sent
+as Testing Farm secrets. The playbook installs the image, reboots when enabled,
+waits for SSH, and then runs the smoke test or pytest. Do not enable this while
+another job is using the same Beaker machine.
 
 For key authentication, pass the private key as a runtime secret:
 
