@@ -87,4 +87,7 @@ fi
 echo "  repo: ${DISPLAY_GIT_URL}@${GIT_REF}"
 echo "  compose: ${COMPOSE} (${ARCH})"
 
-testing-farm "${args[@]}"
+# The CLI echoes the repository URL. Since private-repository credentials are
+# embedded in that URL, redact userinfo before it reaches the terminal/log.
+testing-farm "${args[@]}" 2>&1 \
+    | sed -E 's#(https://)[^/@[:space:]]+:[^/@[:space:]]+@#\1***:***@#g'
