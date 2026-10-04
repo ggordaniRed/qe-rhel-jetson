@@ -88,9 +88,10 @@ release, and kernel. Unset `SSH_SMOKE_ONLY` to run the full pytest suite.
 
 ## Optional Ansible bootc deployment
 
-Set `ANSIBLE_BOOTC=1` to deploy a bootc image with the existing Beaker Ansible
-playbook before the SSH smoke test or pytest suite. This is opt-in; without it,
-the runner only connects to the existing OS.
+Set `ANSIBLE_BOOTC=1` to switch an already booted bootc system to the requested
+image with the existing Beaker Ansible playbook before the SSH smoke test or
+pytest suite. This is opt-in; without it, the runner only connects to the
+existing OS.
 
 ```bash
 export ANSIBLE_BOOTC=1

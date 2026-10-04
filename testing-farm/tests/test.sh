@@ -81,15 +81,20 @@ os.chmod(path, 0o600)
 PY
 
     echo "[testing-farm] Deploying bootc with Ansible"
+    skip_registry_login=true
+    if [[ -n "${REGISTRY_USER:-}" ]]; then
+        skip_registry_login=false
+    fi
     ansible_args=(
         -i "${QE_ROOT}/beaker/ansible/inventory.yml"
-        "${QE_ROOT}/beaker/ansible/install_bootc.yml"
+        "${QE_ROOT}/beaker/ansible/bootc_switch.yml"
         -e "target_host=${JETSON_HOST}"
         -e "ansible_user=${JETSON_USERNAME}"
         -e "bootc_image_base=${BOOTC_IMAGE_BASE}"
         -e "bootc_image_tag=${BOOTC_IMAGE_TAG}"
         -e "registry_url=${REGISTRY_URL:-quay.io}"
         -e "ansible_secrets_file=${ANSIBLE_SECRETS_FILE}"
+        -e "skip_registry_login=${skip_registry_login}"
         -e "auto_reboot=${ANSIBLE_AUTO_REBOOT:-true}"
         -e "restore_boot_order=${ANSIBLE_RESTORE_BOOT_ORDER:-true}"
         -e "reservation_hours=${ANSIBLE_RESERVATION_HOURS:-24}"

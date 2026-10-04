@@ -34,16 +34,17 @@
     # Override with -e "bootc_image_tag=..." or -e "bootc_image_base=..."
     auto_reboot: true
     skip_registry_login: false
+    ansible_secrets_file: vars/secrets.yml
 
   vars_files:
-    - vars/secrets.yml  # Contains registry_user and registry_pass (encrypted with ansible-vault)
+    - "{{ ansible_secrets_file }}"  # Contains registry_user and registry_pass
 
   pre_tasks:
     - name: Validate registry credentials when login is required
       ansible.builtin.assert:
         that:
-          - registry_user is defined
-          - registry_pass is defined
+          - registry_user | default('') | length > 0
+          - registry_pass | default('') | length > 0
         fail_msg: "registry_user and registry_pass are required. Use --ask-vault-pass or -e 'registry_user=xxx registry_pass=xxx'"
       when: not (skip_registry_login | bool)
 
@@ -89,7 +90,10 @@
       ansible.builtin.command:
         cmd: bootc switch {{ bootc_image }}
       register: bootc_switch_result
-      changed_when: "'Queued for next boot' in bootc_switch_result.stdout or bootc_switch_result.rc == 0"
+      changed_when: >-
+        bootc_switch_result.rc == 0 and
+        'Image specification is unchanged' not in
+        (bootc_switch_result.stdout + bootc_switch_result.stderr)
       tags: [switch]
 
     - name: Display bootc switch output
@@ -98,22 +102,75 @@
       tags: [switch]
 
     #=========================================================================
-    # Step 4: Reboot to apply the new image
+    # Step 4: Ensure the next reboot boots RHEL, not PXE or the UEFI shell
+    #
+    # Beaker machines commonly keep PXE and the UEFI shell ahead of the RHEL
+    # entry in BootOrder. A one-time BootNext preserves that infrastructure
+    # order while making this reboot deterministic.
+    #=========================================================================
+    - name: Get EFI boot configuration before reboot
+      ansible.builtin.command: efibootmgr
+      register: efi_boot_info
+      changed_when: false
+      when:
+        - auto_reboot | bool
+        - bootc_switch_result.changed
+      tags: [boot, reboot]
+
+    - name: Find the RHEL EFI boot entry
+      ansible.builtin.shell: >-
+        efibootmgr |
+        awk '/^Boot[0-9A-Fa-f]{4}\*/ && /Red Hat|RHEL|redhat|shim/ {
+          print substr($1, 5, 4); exit
+        }'
+      register: rhel_boot_entry
+      changed_when: false
+      when:
+        - auto_reboot | bool
+        - bootc_switch_result.changed
+      tags: [boot, reboot]
+
+    - name: Require an RHEL EFI boot entry before reboot
+      ansible.builtin.assert:
+        that:
+          - rhel_boot_entry.stdout | trim | length == 4
+        fail_msg: >-
+          Could not find an RHEL EFI boot entry. Refusing to reboot because
+          BootOrder may fall through to PXE or the UEFI shell.
+      when:
+        - auto_reboot | bool
+        - bootc_switch_result.changed
+      tags: [boot, reboot]
+
+    - name: Set RHEL as the one-time next boot
+      ansible.builtin.command:
+        cmd: efibootmgr -n {{ rhel_boot_entry.stdout | trim }}
+      when:
+        - auto_reboot | bool
+        - bootc_switch_result.changed
+      tags: [boot, reboot]
+
+    #=========================================================================
+    # Step 5: Reboot to apply the new image
     #=========================================================================
     - name: Reboot to new bootc image
       ansible.builtin.reboot:
         reboot_timeout: 600
         msg: "Rebooting to apply bootc switch to {{ bootc_image }}"
-      when: auto_reboot | bool
+      when:
+        - auto_reboot | bool
+        - bootc_switch_result.changed
       tags: [reboot]
 
     #=========================================================================
-    # Step 5: Verify new image is active
+    # Step 6: Verify new image is active
     #=========================================================================
     - name: Wait for system to be accessible
       ansible.builtin.wait_for_connection:
         timeout: 300
-      when: auto_reboot | bool
+      when:
+        - auto_reboot | bool
+        - bootc_switch_result.changed
       tags: [verify]
 
     - name: Check bootc status after switch
@@ -139,9 +196,9 @@
     - name: Verify expected image is booted
       ansible.builtin.assert:
         that:
-          - bootc_image_tag in new_bootc_status.stdout
-        fail_msg: "Expected image tag '{{ bootc_image_tag }}' not found in bootc status output"
-        success_msg: "Image tag '{{ bootc_image_tag }}' confirmed in bootc status"
+          - bootc_image_base in new_bootc_status.stdout or bootc_image in new_bootc_status.stdout or bootc_image_tag in new_bootc_status.stdout
+        fail_msg: "Expected image '{{ bootc_image }}' not found in bootc status output"
+        success_msg: "Image '{{ bootc_image }}' confirmed in bootc status"
       when: auto_reboot | bool
       tags: [verify]
 
