@@ -17,10 +17,22 @@ fi
 
 GIT_URL="${GIT_URL:-https://github.com/rh-ecosystem-edge/qe-rhel-jetson.git}"
 GIT_REF="${GIT_REF:-main}"
+GIT_USERNAME="${GIT_USERNAME:-}"
+GIT_PASSWORD="${GIT_PASSWORD:-}"
 COMPOSE="${COMPOSE:-RHEL-9-Nightly}"
 ARCH="${ARCH:-aarch64}"
 TIMEOUT="${TIMEOUT:-240}"
-QE_REPO_URL="${QE_REPO_URL:-${GIT_URL}}"
+if [[ -n "${GIT_USERNAME}" && -z "${GIT_PASSWORD}" ]] || [[ -z "${GIT_USERNAME}" && -n "${GIT_PASSWORD}" ]]; then
+    echo "Set both GIT_USERNAME and GIT_PASSWORD, or neither" >&2
+    exit 2
+fi
+
+GIT_AUTH_URL="${GIT_URL}"
+if [[ -n "${GIT_USERNAME}" ]]; then
+    GIT_AUTH_URL="${GIT_URL/https:\/\//https://${GIT_USERNAME}:${GIT_PASSWORD}@}"
+fi
+
+QE_REPO_URL="${QE_REPO_URL:-${GIT_AUTH_URL}}"
 QE_REPO_REF="${QE_REPO_REF:-${GIT_REF}}"
 SSH_SMOKE_ONLY="${SSH_SMOKE_ONLY:-0}"
 SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64:-}"
@@ -39,7 +51,7 @@ fi
 
 args=(
     request
-    --git-url "${GIT_URL}"
+    --git-url "${GIT_AUTH_URL}"
     --git-ref "${GIT_REF}"
     --compose "${COMPOSE}"
     --arch "${ARCH}"
@@ -48,7 +60,7 @@ args=(
     --environment "JETSON_USERNAME=${JETSON_USERNAME}"
     --environment "JETSON_PORT=${JETSON_PORT:-22}"
     --environment "JETSON_TIMEOUT=${JETSON_TIMEOUT:-60}"
-    --environment "QE_REPO_URL=${QE_REPO_URL}"
+    --secret "QE_REPO_URL=${QE_REPO_URL}"
     --environment "QE_REPO_REF=${QE_REPO_REF}"
     --environment "SSH_SMOKE_ONLY=${SSH_SMOKE_ONLY}"
 )
@@ -67,7 +79,12 @@ fi
 echo "Submitting direct-SSH Testing Farm request"
 echo "  host: ${JETSON_HOST}"
 echo "  user: ${JETSON_USERNAME}"
-echo "  repo: ${GIT_URL}@${GIT_REF}"
+DISPLAY_GIT_URL="${GIT_AUTH_URL}"
+if [[ "${DISPLAY_GIT_URL}" == https://*@* ]]; then
+    DISPLAY_GIT_URL="${DISPLAY_GIT_URL#https://}"
+    DISPLAY_GIT_URL="https://${DISPLAY_GIT_URL#*@}"
+fi
+echo "  repo: ${DISPLAY_GIT_URL}@${GIT_REF}"
 echo "  compose: ${COMPOSE} (${ARCH})"
 
 testing-farm "${args[@]}"

@@ -63,9 +63,14 @@ export JETSON_HOST="nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com"
 export JETSON_USERNAME="root"
 export JETSON_PASSWORD="..."
 
+# The GitLab project is private. Use a GitLab PAT with repository read access
+# so Testing Farm can clone it.
+export GIT_USERNAME="ggordani"
+export GIT_PASSWORD="<gitlab-read-token>"
+
 # The repo/ref must contain this testing-farm directory. Use your pushed
 # branch or fork while developing it.
-export GIT_URL="https://github.com/<user>/qe-rhel-jetson.git"
+export GIT_URL="https://gitlab.cee.redhat.com/ggordani/qe-rhel-jetson.git"
 export GIT_REF="direct-ssh-testing-farm"
 
 bash testing-farm/submit.sh

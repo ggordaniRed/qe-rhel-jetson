@@ -6,6 +6,7 @@ set -o pipefail
 
 WORK_DIR="$(mktemp -d)"
 SSH_KEY_FILE=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cleanup() {
     if [[ -n "${SSH_KEY_FILE}" ]]; then
@@ -38,9 +39,6 @@ QE_REPO_URL="${QE_REPO_URL:-https://github.com/rh-ecosystem-edge/qe-rhel-jetson.
 QE_REPO_REF="${QE_REPO_REF:-main}"
 PYTHON="${PYTHON:-python3}"
 
-echo "[testing-farm] Cloning qe-rhel-jetson ref ${QE_REPO_REF}"
-git clone --depth 1 --branch "${QE_REPO_REF}" "${QE_REPO_URL}" "${WORK_DIR}/qe-rhel-jetson"
-
 if [[ -n "${SSH_PRIVATE_KEY:-}" ]]; then
     SSH_KEY_FILE="${WORK_DIR}/id_jetson"
     printf '%s\n' "${SSH_PRIVATE_KEY}" > "${SSH_KEY_FILE}"
@@ -48,13 +46,16 @@ if [[ -n "${SSH_PRIVATE_KEY:-}" ]]; then
     export JETSON_KEY_PATH="${SSH_KEY_FILE}"
 fi
 
-cd "${WORK_DIR}/qe-rhel-jetson"
-
 if [[ "${SSH_SMOKE_ONLY:-0}" == "1" ]]; then
     echo "[testing-farm] Running SSH smoke test only"
-    "${PYTHON}" testing-farm/tests/ssh_smoke.py
+    "${PYTHON}" "${SCRIPT_DIR}/ssh_smoke.py"
     exit 0
 fi
+
+echo "[testing-farm] Cloning qe-rhel-jetson ref ${QE_REPO_REF}"
+git clone --depth 1 --branch "${QE_REPO_REF}" "${QE_REPO_URL}" "${WORK_DIR}/qe-rhel-jetson"
+
+cd "${WORK_DIR}/qe-rhel-jetson"
 
 pytest_args=(tests_suites/ -v)
 if [[ -n "${TARGET_KERNEL_VERSION:-}" ]]; then
