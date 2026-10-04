@@ -86,6 +86,18 @@ bash testing-farm/submit.sh
 The VM will connect as `root` and print the Beaker hostname, user, RHEL
 release, and kernel. Unset `SSH_SMOKE_ONLY` to run the full pytest suite.
 
+## Investigate a submitted request
+
+Use the request ID printed by `submit.sh`:
+
+```bash
+bash testing-farm/investigate.sh cc6bb08f-15d7-4f1d-b14c-af598bf21842
+```
+
+The script waits for completion, prints the final state/result, and fetches the
+test output. It uses `curl -k` for the internal artifact endpoint when Red Hat
+CA certificates are not installed.
+
 ## Optional Ansible bootc deployment
 
 Set `ANSIBLE_BOOTC=1` to switch an already booted bootc system to the requested
