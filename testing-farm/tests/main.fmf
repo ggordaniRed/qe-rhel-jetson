@@ -1,0 +1,12 @@
+summary: Run qe-rhel-jetson pytest suite over SSH
+description: |
+    Connect to a reserved Beaker Jetson using the JETSON_* environment
+    variables and run the normal pytest hardware suite.
+duration: 3h
+require:
+    - git
+    - python3
+    - python3-pip
+environment:
+    JETSON_USERNAME: root
+test: ./test.sh

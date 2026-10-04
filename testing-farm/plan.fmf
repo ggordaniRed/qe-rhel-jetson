@@ -1,0 +1,25 @@
+summary: Jetson QE tests over direct SSH to a Beaker machine
+description: |
+    Testing Farm provisions a VM and runs the qe-rhel-jetson pytest suite
+    against a separately reserved Beaker Jetson over SSH.
+
+context:
+    initiator: direct-ssh
+
+provision:
+    how: virtual
+
+prepare:
+    - name: Install test dependencies
+      how: shell
+      script: |
+          dnf install -y git python3 python3-pip ca-certificates
+          python3 -m pip install pytest paramiko fabric PyYAML requests
+
+discover:
+    how: fmf
+    test:
+        - /testing-farm/tests
+
+execute:
+    how: tmt

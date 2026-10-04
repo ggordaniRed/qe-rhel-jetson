@@ -229,6 +229,38 @@ The Jetson should boot with a graphical desktop environment (GDM login screen).
 
 ### 6. Run Tests
 
+The pytest suite connects directly to the reserved Beaker machine over SSH. The
+Jumpstarter wrapper is not used for this path; it is only needed when flashing
+and testing a Jumpstarter device.
+
+From a workstation that can reach the BOS2 lab (normally with the Red Hat VPN):
+
+```bash
+cd qe-rhel-jetson
+export JETSON_HOST="nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com"
+export JETSON_USERNAME="root"
+export JETSON_KEY_PATH="$HOME/.ssh/id_ed25519"  # or unset this and use JETSON_PASSWORD
+
+bash beaker/scripts/run_ssh_tests.sh
+```
+
+Run a subset of tests by passing normal pytest arguments:
+
+```bash
+bash beaker/scripts/run_ssh_tests.sh tests_suites/sanity/ -v
+bash beaker/scripts/run_ssh_tests.sh tests_suites/ --target-kernel-version=5.14.0-687.12.1
+```
+
+You can also open an interactive SSH session with the same target:
+
+```bash
+ssh root@"${JETSON_HOST}"
+```
+
+The current Testing Farm pipeline remains Jumpstarter-based. A Testing Farm VM
+can use this direct-SSH runner only if it has network access to the Beaker lab,
+SSH credentials, and a separately reserved Beaker machine.
+
 ```bash
 cd ../..  # Back to qejetson root
 export JETSON_HOST="nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com"
