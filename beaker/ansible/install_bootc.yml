@@ -100,6 +100,55 @@
         dest: "/root/original_boot_order.txt"
         mode: '0644'
       tags: [boot]
+
+    # Jetson Beaker images expose the EFI System Partition as a VFAT partition
+    # but do not mount it at /boot/efi. bootc/bootupd requires the ESP mounted
+    # while installing the bootloader.
+    - name: Find EFI System Partition
+      ansible.builtin.shell: |
+        set -o pipefail
+        lsblk -nrpo NAME,FSTYPE | awk '$2 == "vfat" {print $1; exit}'
+      args:
+        executable: /bin/bash
+      register: efi_partition_device
+      changed_when: false
+      failed_when: efi_partition_device.stdout | trim == ''
+      tags: [efi]
+
+    - name: Create EFI mount point
+      ansible.builtin.file:
+        path: /boot/efi
+        state: directory
+        mode: '0755'
+      tags: [efi]
+
+    - name: Check whether EFI System Partition is mounted
+      ansible.builtin.command: findmnt -n -o SOURCE /boot/efi
+      register: efi_mount_before_install
+      changed_when: false
+      failed_when: false
+      tags: [efi]
+
+    - name: Mount EFI System Partition
+      ansible.builtin.command:
+        cmd: mount {{ efi_partition_device.stdout | trim }} /boot/efi
+      when: efi_mount_before_install.rc != 0
+      tags: [efi]
+
+    - name: Read EFI System Partition UUID
+      ansible.builtin.command:
+        cmd: blkid -s UUID -o value {{ efi_partition_device.stdout | trim }}
+      register: efi_partition_uuid
+      changed_when: false
+      tags: [efi]
+
+    - name: Persist EFI System Partition mount
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^UUID={{ efi_partition_uuid.stdout | trim }}[[:space:]]+/boot/efi[[:space:]]'
+        line: "UUID={{ efi_partition_uuid.stdout | trim }} /boot/efi vfat defaults 0 0"
+        create: true
+      tags: [efi]
     
     #=========================================================================
     # Step 3: Login to container registry
