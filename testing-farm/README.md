@@ -94,11 +94,11 @@ the runner only connects to the existing OS.
 
 ```bash
 export ANSIBLE_BOOTC=1
-export BOOTC_IMAGE_BASE="registry.gitlab.com/redhat/rhel/sst/orin-sidecar/nvidia-jetson-sidecar/rhel-9.7"
+export BOOTC_IMAGE_BASE="quay.io/<quay-namespace>/<bootc-image>"
 export BOOTC_IMAGE_TAG="411ed591"
-export REGISTRY_URL="registry.gitlab.com"
-export REGISTRY_USER="<registry-user>"
-export REGISTRY_PASSWORD="<registry-token>"
+export REGISTRY_URL="quay.io"
+export REGISTRY_USER="<quay-robot-user>"
+export REGISTRY_PASSWORD="<quay-robot-token>"
 export ANSIBLE_AUTO_REBOOT=true
 export ANSIBLE_RESTORE_BOOT_ORDER=true
 export ANSIBLE_RESERVATION_HOURS=24

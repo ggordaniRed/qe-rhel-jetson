@@ -83,7 +83,7 @@ PY
         -e "ansible_user=${JETSON_USERNAME}"
         -e "bootc_image_base=${BOOTC_IMAGE_BASE}"
         -e "bootc_image_tag=${BOOTC_IMAGE_TAG}"
-        -e "registry_url=${REGISTRY_URL:-registry.gitlab.com}"
+        -e "registry_url=${REGISTRY_URL:-quay.io}"
         -e "ansible_secrets_file=${ANSIBLE_SECRETS_FILE}"
         -e "auto_reboot=${ANSIBLE_AUTO_REBOOT:-true}"
         -e "restore_boot_order=${ANSIBLE_RESTORE_BOOT_ORDER:-true}"
