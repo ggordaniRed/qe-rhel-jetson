@@ -1,7 +1,7 @@
 name: Update Test Matrix Dashboard
 
 on:
-  # Cron: run after the RHEL 9.8 e2e-full Prow periodic job to give it time to finish
+  # Cron: run after the RHEL 9.8 latest e2e-full Prow periodic job to give it time to finish
   schedule:
     - cron: '30 10 * * 1'  # Monday 10:30 UTC (job runs 08:00)
   # Also regenerate on push to this branch when matrix scripts change
@@ -55,12 +55,12 @@ jobs:
       # here and make Pages refreshes unnecessarily slow and fragile.
 
       #========================================================================
-      # Step 1: Fetch only the RHEL 9.8 e2e-full Prow periodic job from GCS
+      # Step 1: Fetch only the RHEL 9.8 latest e2e-full Prow periodic job from GCS
       #========================================================================
       - name: Resolve Prow job name
         id: job
         run: |
-          JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full"
+          JOB="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-latest-e2e-full"
           echo "name=$JOB" >> $GITHUB_OUTPUT
           echo "fetch=true" >> $GITHUB_OUTPUT
           echo "Prow job to fetch: $JOB"

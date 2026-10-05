@@ -275,6 +275,7 @@ def load_ci_results(ci_json_path, default_version="9.7", device_log_index=None):
             "results":     results,
             "source":      run.get("source", "pr"),
             "periodic_job":run.get("periodic_job", ""),
+            "job":         run.get("job", ""),
             "report_path": log_report.get("report_path", ""),
         })
         if key not in out:

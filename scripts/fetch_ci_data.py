@@ -4,7 +4,8 @@ Fetch the latest JUnit results from Prow/GCS for the qe-rhel-jetson pytest job
 and merge them into matrix_data/ci_results.json.
 
 Usage:
-    python scripts/fetch_ci_data.py [--job JOB_NAME] [--runs N] [--output PATH]
+    python scripts/fetch_ci_data.py [--job JOB_NAME] [--pr-limit N]
+        [--run-limit N] [--output PATH]
 
 The public test-platform-results-public bucket is used so no credentials are needed.
 """
@@ -19,14 +20,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree
 
-PROW_JOB = "pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
+PROW_JOB = (
+    "pull-ci-rh-ecosystem-edge-qe-rhel-jetson-"
+    "rhel-9.8-latest-e2e-full-presubmit"
+)
 GCS_BASE  = "https://storage.googleapis.com/test-platform-results-public"
 GCS_API   = "https://storage.googleapis.com/storage/v1/b/test-platform-results-public/o"
 REPO_SLUG = "rh-ecosystem-edge_qe-rhel-jetson"
 
-# Artifact path — matches ci-operator step "as: pytest" + ref "qe-rhel-jetson-pytest"
-JUNIT_PATH    = "artifacts/pytest/qe-rhel-jetson-pytest/artifacts/junit.xml"
-BUILD_LOG_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/build-log.txt"
+# Legacy artifact path used by the old main-pytest job. Current presubmit jobs
+# put the pytest artifacts below their e2e-* step directory instead.
+LEGACY_JUNIT_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/artifacts/junit.xml"
+LEGACY_BUILD_LOG_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/build-log.txt"
 
 CLASS_TO_TEST = {
     "TestBootcSwitch":              "Bootc switch",
@@ -114,20 +119,50 @@ def fetch_finished(pr, job, build_id):
         return None
 
 
+def test_step(job):
+    """Return the ci-operator step name embedded in a Prow job name."""
+    match = re.search(r"(e2e-[^/]+)$", job)
+    return match.group(1) if match else ""
+
+
+def artifact_paths(job, filename):
+    """Return current and legacy paths for a pytest artifact."""
+    paths = []
+    step = test_step(job)
+    if step:
+        paths.append(f"artifacts/{step}/qe-rhel-jetson-pytest/{filename}")
+    legacy = {
+        "artifacts/junit.xml": LEGACY_JUNIT_PATH,
+        "build-log.txt": LEGACY_BUILD_LOG_PATH,
+    }.get(filename)
+    if legacy:
+        paths.append(legacy)
+    return paths
+
+
+def fetch_artifact(pr, job, build_id, filename):
+    for path in artifact_paths(job, filename):
+        try:
+            return fetch_bytes(f"{pr_base(pr, job, build_id)}/{path}")
+        except urllib.error.HTTPError:
+            continue
+    return None
+
+
 def fetch_junit(pr, job, build_id):
-    url = f"{pr_base(pr, job, build_id)}/{JUNIT_PATH}"
-    try:
-        return fetch_bytes(url)
-    except urllib.error.HTTPError:
-        return None
+    return fetch_artifact(pr, job, build_id, "artifacts/junit.xml")
 
 
 def fetch_system_info(pr, job, build_id):
     """Parse hardware/version info from build-log.txt."""
-    url = f"{pr_base(pr, job, build_id)}/{BUILD_LOG_PATH}"
-    try:
-        log = fetch_text(url)
-    except urllib.error.HTTPError:
+    log = None
+    for path in artifact_paths(job, "build-log.txt"):
+        try:
+            log = fetch_text(f"{pr_base(pr, job, build_id)}/{path}")
+            break
+        except urllib.error.HTTPError:
+            continue
+    if log is None:
         return {}
 
     return parse_system_info(log)
@@ -195,8 +230,7 @@ def periodic_base(job, build_id):
 
 def periodic_test_step(job):
     """Return the ci-operator test step directory, e.g. ``e2e-full``."""
-    match = re.search(r"(e2e-[^/]+)$", job)
-    return match.group(1) if match else "e2e-full"
+    return test_step(job) or "e2e-full"
 
 
 def list_periodic_builds(job, build_limit=5):
@@ -322,7 +356,7 @@ def main():
     )
     ap.add_argument(
         "--periodic-job",
-        default="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-e2e-full",
+        default="periodic-ci-rh-ecosystem-edge-qe-rhel-jetson-rhel-9.8-latest-e2e-full",
         help="Periodic job name to fetch",
     )
     ap.add_argument(
@@ -398,6 +432,7 @@ def main():
             entry = {
                 "build_id":     build_id,
                 "pr":           pr,
+                "job":           args.job,
                 "run_url":      prow_url(pr, args.job, build_id),
                 "platform":     platform,
                 "rhel_version": rhel_version,
