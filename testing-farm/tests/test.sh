@@ -45,7 +45,7 @@ if [[ -z "${JETSON_PASSWORD:-}" && -z "${SSH_PRIVATE_KEY:-}" ]]; then
 fi
 
 QE_REPO_URL="${QE_REPO_URL:-https://github.com/rh-ecosystem-edge/qe-rhel-jetson.git}"
-QE_REPO_REF="${QE_REPO_REF:-main}"
+QE_REPO_REF="${QE_REPO_REF:-rhel-9.8-latest}"
 PYTHON="${PYTHON:-python3}"
 
 if [[ -n "${SSH_PRIVATE_KEY:-}" ]]; then

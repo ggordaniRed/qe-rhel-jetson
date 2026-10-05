@@ -32,8 +32,8 @@ if [[ -n "${GIT_USERNAME}" ]]; then
     GIT_AUTH_URL="${GIT_URL/https:\/\//https://${GIT_USERNAME}:${GIT_PASSWORD}@}"
 fi
 
-QE_REPO_URL="${QE_REPO_URL:-${GIT_AUTH_URL}}"
-QE_REPO_REF="${QE_REPO_REF:-${GIT_REF}}"
+QE_REPO_URL="${QE_REPO_URL:-https://github.com/rh-ecosystem-edge/qe-rhel-jetson.git}"
+QE_REPO_REF="${QE_REPO_REF:-rhel-9.8-latest}"
 SSH_SMOKE_ONLY="${SSH_SMOKE_ONLY:-0}"
 SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64:-}"
 ANSIBLE_BOOTC="${ANSIBLE_BOOTC:-0}"

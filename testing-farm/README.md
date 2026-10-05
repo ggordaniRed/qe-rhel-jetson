@@ -73,6 +73,10 @@ export GIT_PASSWORD="<gitlab-read-token>"
 export GIT_URL="https://gitlab.cee.redhat.com/ggordani/qe-rhel-jetson.git"
 export GIT_REF="direct-ssh-testing-farm"
 
+# The actual pytest source is pulled separately from the upstream GitHub repo.
+export QE_REPO_URL="https://github.com/rh-ecosystem-edge/qe-rhel-jetson.git"
+export QE_REPO_REF="rhel-9.8-latest"
+
 bash testing-farm/submit.sh
 ```
 
