@@ -160,7 +160,7 @@ On RHEL 9, camera kmods (`tegra_camera`, `nvhost_isp`, `nvcsi`, `tegra_vi`, …)
 | Topic | Limitation |
 |-------|------------|
 | L4T JetPack container | NGC has **no `r36.5.x`** (or `r39.x` / JetPack 7). Host L4T 36.5.x uses `nvcr.io/nvidia/l4t-jetpack:r36.4.0` (newer host driver + older container userspace). Published tags: `r36.4.0`, `r36.3.0`, `r36.2.0`, `r35.4.1`, `r35.3.1`, `r35.2.1`, `r35.1.0`. Override with `L4T_JETPACK_IMAGE`. |
-| DeepStream | Default is `nvcr.io/nvidia/deepstream:7.1-samples-multiarch` (Jetson samples). Version, plugins, `nvvideoconvert`, and `nvstreammux` run. Sample **inference** may fail: this image often has neither `nvv4l2decoder` nor `avdec_h264`. The dGPU Triton image (`7.1-triton-multiarch`) prints driver `560.28+ UNAVAILABLE` on L4T; that banner is ignored, not used as a skip. Set `DEEPSTREAM_IMAGE` to a Jetson `deepstream-l4t` tag if you need full inference. |
+| DeepStream | Default is `nvcr.io/nvidia/deepstream:9.1-samples-multiarch`, NVIDIA's JetPack 7.2/L4T 39.2 image for Jetson Orin. The suite validates the version, required plugins, `nvvideoconvert`, `nvstreammux`, and sample inference. Override with `DEEPSTREAM_IMAGE` only when testing another JetPack-compatible release. |
 | L4T image pull | Only CUDA/DLA/PVA/MMAPI fixtures pull `l4t-jetpack`. SC7/RTC/ISP do not. |
 
 ### Hardware / product spec

@@ -9,7 +9,6 @@ import os
 import pytest
 from pathlib import Path
 from logging import getLogger
-from tests_suites import conftest as _conftest
 from tests_resources.container_ops import (
     build_container_image, run_container, cleanup_container_image,
 )
@@ -18,13 +17,13 @@ logger = getLogger(__name__)
 
 FILE = Path(os.path.realpath(__file__)).parent
 
-# Jetson samples image (has sample streams/models). Not the dGPU Triton image:
-# nvcr.io/nvidia/deepstream:7.1-triton-multiarch prints driver 560.28+ UNAVAILABLE
-# on L4T and is the wrong default for this suite.
-DEFAULT_DEEPSTREAM_IMAGE = "nvcr.io/nvidia/deepstream:7.1-samples-multiarch"
+# DeepStream 9.1 is NVIDIA's JetPack 7.2/L4T 39.2 release for Jetson Orin.
+# The multiarch samples image contains the TensorRT backend, sample streams,
+# models, and the arm64 userspace required by these tests.
+DEFAULT_DEEPSTREAM_IMAGE = "nvcr.io/nvidia/deepstream:9.1-samples-multiarch"
 DEEPSTREAM_IMAGE = os.getenv("DEEPSTREAM_IMAGE", DEFAULT_DEEPSTREAM_IMAGE)
 
-DS_BASE = "/opt/nvidia/deepstream/deepstream"
+DS_BASE = "/opt/nvidia/deepstream/deepstream-9.1"
 DS_SAMPLES = f"{DS_BASE}/samples"
 DS_STREAMS = f"{DS_SAMPLES}/streams"
 DS_CONFIGS = f"{DS_SAMPLES}/configs/deepstream-app"
@@ -36,25 +35,6 @@ REQUIRED_PLUGINS = [
     "nvdsosd",
     "nvvideoconvert",
 ]
-
-INCOMPATIBLE_L4T39_PLUGINS = {"nvstreammux", "nvvideoconvert"}
-
-
-def _default_image_has_l4t39_glib_mismatch():
-    """The DS 7.1 image has GLib 2.76; L4T 39 RHEL libraries need 2.80."""
-    return (
-        DEEPSTREAM_IMAGE == DEFAULT_DEEPSTREAM_IMAGE
-        and str(_conftest.L4T_VERSION or "").startswith("39.")
-    )
-
-
-def _skip_incompatible_l4t39_video_plugins():
-    if _default_image_has_l4t39_glib_mismatch():
-        pytest.skip(
-            "DeepStream 7.1 multiarch is not compatible with L4T 39/RHEL 10: "
-            "host libnvdsbufferpool requires GLib 2.80, container provides 2.76"
-        )
-
 
 class TestDeepStream:
     """Test NVIDIA DeepStream SDK on Jetson devices."""
@@ -84,12 +64,7 @@ class TestDeepStream:
     @pytest.mark.critical
     @pytest.mark.parametrize("plugin", REQUIRED_PLUGINS)
     def test_deepstream_gst_plugin(self, ssh, deepstream_image, plugin):
-        """Verify each compatible DeepStream GStreamer plugin is registered."""
-        if (
-            plugin in INCOMPATIBLE_L4T39_PLUGINS
-            and _default_image_has_l4t39_glib_mismatch()
-        ):
-            _skip_incompatible_l4t39_video_plugins()
+        """Verify each required DeepStream GStreamer plugin is registered."""
         result = run_container(ssh, deepstream_image, f"gst-inspect-1.0 {plugin}")
         assert result.exit_status == 0, (
             f"Missing DeepStream GStreamer plugin {plugin}: "
@@ -100,7 +75,6 @@ class TestDeepStream:
     def test_nvvideoconvert_pipeline(self, ssh, deepstream_image):
         """Run a basic nvvideoconvert pipeline on a synthetic source.
         Validates that the DeepStream GPU video-conversion element works end-to-end."""
-        _skip_incompatible_l4t39_video_plugins()
         result = run_container(
             ssh, deepstream_image,
             "gst-launch-1.0 videotestsrc num-buffers=30 ! nvvideoconvert ! fakesink",
@@ -111,7 +85,6 @@ class TestDeepStream:
 
     def test_nvstreammux_pipeline(self, ssh, deepstream_image):
         """Run a pipeline through nvstreammux — the DeepStream batch multiplexer."""
-        _skip_incompatible_l4t39_video_plugins()
         result = run_container(
             ssh, deepstream_image,
             "gst-launch-1.0 "
@@ -129,12 +102,9 @@ class TestDeepStream:
         Uses the Primary_Detector (ResNet10) model from DeepStream samples.
         Note: TRT engine compilation on first run can take several minutes.
         """
-        _skip_incompatible_l4t39_video_plugins()
-
-        # L4T / JetPack drivers are 540.x; some NGC images still print
-        # "built for NVIDIA Driver Release 560.28+" / UNAVAILABLE. NVIDIA
-        # documents that this is a container-runtime banner and is not a
-        # functional skip on Jetson — continue and let the pipeline decide.
+        # Some multiarch images print a driver-compatibility banner before the
+        # command output. On Jetson, continue and let the pipeline determine
+        # whether the host driver and container userspace are compatible.
         probe = run_container(ssh, deepstream_image, "echo ok")
         probe_out = probe.stdout + probe.stderr
         if "UNAVAILABLE" in probe_out:

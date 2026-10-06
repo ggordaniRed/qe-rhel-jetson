@@ -1,5 +1,5 @@
-# Jetson samples image (runtime + sample streams/models).
-# Override with DEEPSTREAM_IMAGE for Triton or deepstream-l4t tags.
-ARG DEEPSTREAM_IMAGE=nvcr.io/nvidia/deepstream:7.1-samples-multiarch
+# JetPack 7.2/L4T 39.2 Jetson samples image (runtime + sample streams/models).
+# Override with DEEPSTREAM_IMAGE for another compatible DeepStream tag.
+ARG DEEPSTREAM_IMAGE=nvcr.io/nvidia/deepstream:9.1-samples-multiarch
 FROM ${DEEPSTREAM_IMAGE}
-WORKDIR /opt/nvidia/deepstream/deepstream
+WORKDIR /opt/nvidia/deepstream/deepstream-9.1
