@@ -161,6 +161,7 @@ On RHEL 9, camera kmods (`tegra_camera`, `nvhost_isp`, `nvcsi`, `tegra_vi`, …)
 |-------|------------|
 | L4T JetPack container | NGC has **no `r36.5.x`** (or `r39.x` / JetPack 7). Host L4T 36.5.x uses `nvcr.io/nvidia/l4t-jetpack:r36.4.0` (newer host driver + older container userspace). Published tags: `r36.4.0`, `r36.3.0`, `r36.2.0`, `r35.4.1`, `r35.3.1`, `r35.2.1`, `r35.1.0`. Override with `L4T_JETPACK_IMAGE`. |
 | DeepStream | Default is `nvcr.io/nvidia/deepstream:9.1-samples-multiarch`, NVIDIA's JetPack 7.2/L4T 39.2 image for Jetson Orin. The suite validates the version, required plugins, `nvvideoconvert`, `nvstreammux`, and sample inference. Override with `DEEPSTREAM_IMAGE` only when testing another JetPack-compatible release. |
+| DLA on JetPack 7.2 | The stock SBSA stack (CUDA 13.2/TensorRT 10.16) does not ship the Orin DLA userspace compiler/runtime (`libnvdla_compiler.so`). DLA-only tests skip; TensorRT GPU validation remains enabled. Do not install NVIDIA's Debian-only experimental upgrade instructions on RHEL. |
 | L4T image pull | Only CUDA/DLA/PVA/MMAPI fixtures pull `l4t-jetpack`. SC7/RTC/ISP do not. |
 
 ### Hardware / product spec
@@ -171,6 +172,7 @@ On RHEL 9, camera kmods (`tegra_camera`, `nvhost_isp`, `nvcsi`, `tegra_vi`, …)
 | VIC encode tests | `video_enc.supported: false` on that platform. |
 | PCIe speed tests | No `capable_speed` / PCIe spec for that model. |
 | SC7 | No wakealarm RTC, or kernel has no `mem_sleep=deep`. |
+| SC7 on JetPack 7.2.1/L4T 39.2.1 | Repeated resume cycles can fail in `tegra-se-nvrng` with error `-110` and GPU DCE RPC errors. Run SC7 in an isolated job with serial/power recovery; tracked in [#105](https://github.com/rh-ecosystem-edge/qe-rhel-jetson/issues/105). |
 
 ### Session-level (entire pytest run skipped)
 

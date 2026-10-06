@@ -43,6 +43,9 @@ _SUSPEND_DELAY_SEC = 3
 
 # Tegra RTC driver name as it appears in sysfs (often rtc1, not rtc0, on AGX Orin)
 TEGRA_RTC_NAME = "tegra_rtc"
+SC7_NVRNG_ISSUE = (
+    "https://github.com/rh-ecosystem-edge/qe-rhel-jetson/issues/105"
+)
 
 # dmesg patterns that are known-benign on Jetson and should not fail the test
 _DMESG_ALLOWLIST = [
@@ -85,7 +88,8 @@ def _xfail_if_boot_already_has_nvrng_resume_failure(ssh):
         _close_quietly(ssh)
         pytest.xfail(
             "This boot already hit the L4T 39 SC7 NVRNG resume timeout; "
-            "repeating suspend risks another SSH outage"
+            "repeating suspend risks another SSH outage. "
+            f"Tracked in {SC7_NVRNG_ISSUE}"
         )
 
 
