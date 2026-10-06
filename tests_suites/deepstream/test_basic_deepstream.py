@@ -9,6 +9,7 @@ import os
 import pytest
 from pathlib import Path
 from logging import getLogger
+from tests_suites import conftest as _conftest
 from tests_resources.container_ops import (
     build_container_image, run_container, cleanup_container_image,
 )
@@ -20,10 +21,8 @@ FILE = Path(os.path.realpath(__file__)).parent
 # Jetson samples image (has sample streams/models). Not the dGPU Triton image:
 # nvcr.io/nvidia/deepstream:7.1-triton-multiarch prints driver 560.28+ UNAVAILABLE
 # on L4T and is the wrong default for this suite.
-DEEPSTREAM_IMAGE = os.getenv(
-    "DEEPSTREAM_IMAGE",
-    "nvcr.io/nvidia/deepstream:7.1-samples-multiarch",
-)
+DEFAULT_DEEPSTREAM_IMAGE = "nvcr.io/nvidia/deepstream:7.1-samples-multiarch"
+DEEPSTREAM_IMAGE = os.getenv("DEEPSTREAM_IMAGE", DEFAULT_DEEPSTREAM_IMAGE)
 
 DS_BASE = "/opt/nvidia/deepstream/deepstream"
 DS_SAMPLES = f"{DS_BASE}/samples"
@@ -37,6 +36,24 @@ REQUIRED_PLUGINS = [
     "nvdsosd",
     "nvvideoconvert",
 ]
+
+INCOMPATIBLE_L4T39_PLUGINS = {"nvstreammux", "nvvideoconvert"}
+
+
+def _default_image_has_l4t39_glib_mismatch():
+    """The DS 7.1 image has GLib 2.76; L4T 39 RHEL libraries need 2.80."""
+    return (
+        DEEPSTREAM_IMAGE == DEFAULT_DEEPSTREAM_IMAGE
+        and str(_conftest.L4T_VERSION or "").startswith("39.")
+    )
+
+
+def _skip_incompatible_l4t39_video_plugins():
+    if _default_image_has_l4t39_glib_mismatch():
+        pytest.skip(
+            "DeepStream 7.1 multiarch is not compatible with L4T 39/RHEL 10: "
+            "host libnvdsbufferpool requires GLib 2.80, container provides 2.76"
+        )
 
 
 class TestDeepStream:
@@ -65,20 +82,25 @@ class TestDeepStream:
         logger.info("DeepStream version output:\n%s", output)
 
     @pytest.mark.critical
-    def test_deepstream_gst_plugins(self, ssh, deepstream_image):
-        """Verify required DeepStream GStreamer plugins are registered."""
-        failed = []
-        for plugin in REQUIRED_PLUGINS:
-            result = run_container(ssh, deepstream_image, f"gst-inspect-1.0 {plugin}")
-            if result.exit_status != 0:
-                failed.append(f"{plugin}: {result.stderr.strip()[:120]}")
-            else:
-                logger.info("Plugin OK: %s", plugin)
-        assert not failed, "Missing DeepStream GStreamer plugins:\n" + "\n".join(failed)
+    @pytest.mark.parametrize("plugin", REQUIRED_PLUGINS)
+    def test_deepstream_gst_plugin(self, ssh, deepstream_image, plugin):
+        """Verify each compatible DeepStream GStreamer plugin is registered."""
+        if (
+            plugin in INCOMPATIBLE_L4T39_PLUGINS
+            and _default_image_has_l4t39_glib_mismatch()
+        ):
+            _skip_incompatible_l4t39_video_plugins()
+        result = run_container(ssh, deepstream_image, f"gst-inspect-1.0 {plugin}")
+        assert result.exit_status == 0, (
+            f"Missing DeepStream GStreamer plugin {plugin}: "
+            f"{result.stderr.strip()[:500]}"
+        )
+        logger.info("Plugin OK: %s", plugin)
 
     def test_nvvideoconvert_pipeline(self, ssh, deepstream_image):
         """Run a basic nvvideoconvert pipeline on a synthetic source.
         Validates that the DeepStream GPU video-conversion element works end-to-end."""
+        _skip_incompatible_l4t39_video_plugins()
         result = run_container(
             ssh, deepstream_image,
             "gst-launch-1.0 videotestsrc num-buffers=30 ! nvvideoconvert ! fakesink",
@@ -89,6 +111,7 @@ class TestDeepStream:
 
     def test_nvstreammux_pipeline(self, ssh, deepstream_image):
         """Run a pipeline through nvstreammux — the DeepStream batch multiplexer."""
+        _skip_incompatible_l4t39_video_plugins()
         result = run_container(
             ssh, deepstream_image,
             "gst-launch-1.0 "
@@ -106,6 +129,8 @@ class TestDeepStream:
         Uses the Primary_Detector (ResNet10) model from DeepStream samples.
         Note: TRT engine compilation on first run can take several minutes.
         """
+        _skip_incompatible_l4t39_video_plugins()
+
         # L4T / JetPack drivers are 540.x; some NGC images still print
         # "built for NVIDIA Driver Release 560.28+" / UNAVAILABLE. NVIDIA
         # documents that this is a container-runtime banner and is not a

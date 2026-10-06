@@ -73,9 +73,26 @@ class TestTools:
             )
 
     def test_nvfancontrol_available(self, ssh):
-        """Test nvfancontrol is available (nvidia-jetpack-tools)."""
+        """Test nvfancontrol is available and can query a running service."""
         which_result = ssh.run("which nvfancontrol", fail_on_rc=False)
         if not which_result.stdout.strip():
             pytest.skip("nvfancontrol not in PATH")
-        result = ssh.sudo("nvfancontrol -q", fail_on_rc=False)
-        assert result.exit_status == 0, f"nvfancontrol failed: {result.stderr}"
+        active = ssh.run(
+            "systemctl is-active nvfancontrol.service", fail_on_rc=False
+        )
+        started_here = active.stdout.strip() != "active"
+        if started_here:
+            start = ssh.sudo(
+                "systemctl start nvfancontrol.service", fail_on_rc=False
+            )
+            assert start.exit_status == 0, (
+                f"Could not start nvfancontrol.service: {start.stderr}"
+            )
+        try:
+            result = ssh.sudo("nvfancontrol -q", fail_on_rc=False)
+            assert result.exit_status == 0, f"nvfancontrol failed: {result.stderr}"
+        finally:
+            if started_here:
+                ssh.sudo(
+                    "systemctl stop nvfancontrol.service", fail_on_rc=False
+                )

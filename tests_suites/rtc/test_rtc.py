@@ -78,7 +78,13 @@ class TestRTCDevice:
 
     def test_rtc_dmesg_no_errors(self, ssh):
         """dmesg should show RTC registration without errors."""
-        result = ssh.sudo("dmesg | grep -iE 'rtc|tegra_rtc'", fail_on_rc=False)
+        # Match RTC as a token. A plain ``grep rtc`` also captures unrelated
+        # camera RTCPU messages such as ``tegra-camrtc-capture-vi``.
+        result = ssh.sudo(
+            "dmesg | grep -iE "
+            "'(^|[^[:alnum:]_])(rtc|tegra_rtc)([^[:alnum:]_]|$)'",
+            fail_on_rc=False,
+        )
         assert result.exit_status == 0 and result.stdout.strip(), (
             "No RTC-related messages in dmesg"
         )

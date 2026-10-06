@@ -11,6 +11,10 @@
 # Note: kernel_version is retained as reference data; it is not a session gate.
 # -----------------------------------------------------------------------------
 _target_versions:
+  "7.2.1":
+      uefi_firmware_version:
+        - "39.2.0"
+
   "6.2.3":
     rhel_version: "9.8"
     l4t_version: "36.5.2"

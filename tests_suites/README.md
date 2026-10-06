@@ -59,7 +59,20 @@ Tests can be configured via environment variables:
 L4T container tests can be configured via:
 
 - `L4T_JETPACK_IMAGE`: L4T container image (default: `nvcr.io/nvidia/l4t-jetpack:r36.4.0`)
-- `CUDA_SAMPLES_VERSION`: cuda-samples git tag (default: `v12.9`)
+- `CUDA_SAMPLES_IMAGE`: prebuilt CUDA samples image (default: private JetPack 7 image)
+- `GITLAB_REGISTRY_USER` and `GITLAB_REGISTRY_TOKEN`: credentials for the private CUDA samples image
+
+The CUDA suite does not pull the public NGC L4T image. Set the GitLab
+credentials in the environment before running it:
+
+```bash
+export GITLAB_REGISTRY_USER='your-gitlab-user'
+export GITLAB_REGISTRY_TOKEN='your-gitlab-token'
+JETSON_HOST=nvidia-jetson-agx-orin-06.khw.eng.bos2.dc.redhat.com pytest tests_suites/cuda/ -v
+```
+
+JetPack 7 skips the NGC PyTorch and TensorFlow `igpu` images because they are
+not Jetson L4T 39 images and are not pulled automatically.
 
 ## Running Tests
 

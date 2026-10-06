@@ -151,62 +151,6 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
         logger.info("[Setup] EPEL missing, installing for RHEL %s", rhel_version)
         locked_dnf(cmd_epel)
 
-def _ensure_nvidia_container_toolkit(ssh):
-    """Ensure the NVIDIA Container Toolkit and CDI configuration are ready."""
-    def locked_dnf(command, **kwargs):
-        """Serialize DNF across xdist workers sharing the same Jetson."""
-        # Mutate the inner dnf command first so bootc keeps its transient
-        # installation semantics; the outer command starts with ``flock``.
-        command = ssh._mutate_command(command)
-        return ssh.sudo(
-            "flock -w 900 /run/lock/qe-rhel-jetson-dnf.lock sh -c "
-            + shlex.quote(command),
-            **kwargs,
-        )
-
-    repo_path = "/etc/yum.repos.d/nvidia-container-toolkit.repo"
-    repo_content = """[nvidia-container-toolkit]
-name=nvidia-container-toolkit
-baseurl=https://nvidia.github.io/libnvidia-container/stable/rpm/$basearch
-repo_gpgcheck=1
-gpgcheck=0
-enabled=1
-gpgkey=https://nvidia.github.io/libnvidia-container/gpgkey
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-
-[nvidia-container-toolkit-experimental]
-name=nvidia-container-toolkit-experimental
-baseurl=https://nvidia.github.io/libnvidia-container/experimental/rpm/$basearch
-repo_gpgcheck=1
-gpgcheck=0
-enabled=0
-gpgkey=https://nvidia.github.io/libnvidia-container/gpgkey
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-"""
-
-    logger.info("[Setup] Checking NVIDIA Container Toolkit repository...")
-    result = ssh.run(f"ls {repo_path}", fail_on_rc=False)
-    if result.exit_status != 0:
-        logger.info("[Setup] NVIDIA Toolkit repository missing, creating it...")
-        # Encode the repo content so shell expansion of $basearch cannot alter it.
-        import base64
-        encoded_repo = base64.b64encode(repo_content.encode()).decode()
-        ssh.run(f"echo '{encoded_repo}' | base64 -d > /tmp/nvidia-toolkit.repo")
-        ssh.sudo(f"mv /tmp/nvidia-toolkit.repo {repo_path}")
-        locked_dnf("dnf clean all", fail_on_rc=False)
-
-    logger.info("[Setup] Ensuring nvidia-container-toolkit-base is installed...")
-    locked_dnf("dnf install -y nvidia-container-toolkit-base")
-
-    logger.info("[Setup] Checking NVIDIA CDI configuration...")
-    cdi_check = ssh.run("nvidia-ctk cdi list", fail_on_rc=False)
-    if cdi_check.exit_status != 0 or "nvidia.com/gpu" not in cdi_check.stdout:
-        logger.info("[Setup] NVIDIA CDI is unavailable, generating it...")
-        ssh.sudo("mkdir -p /etc/cdi")
-        ssh.sudo("nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml")
-
 def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[Dict[str, str]]:
     """Return target version dict for the given Jetpack version, or None."""
     specs = _load_hardware_specs()
@@ -415,13 +359,12 @@ def refresh_hardware_info_globals(ssh):
 
 @pytest.fixture(scope="session")
 def l4t_image_pulled(hardware_info_session):
-    """Pre-pull L4T JetPack container image once per session.
+    """Require a cached L4T image without pulling from NGC.
 
     Not autouse: SC7/RTC/and other non-container suites must not depend on
-    nvcr.io. Suites that build FROM l4t-jetpack request this fixture.
-
-    Host L4T is mapped to a published NGC tag (r36.5.x -> r36.4.0). If that
-    pull still fails, try remaining published tags on the same L4T major.
+    nvcr.io. Suites that build FROM l4t-jetpack request this fixture. JetPack
+    7/L4T 39 has no published NGC l4t-jetpack image, so pulling is deliberately
+    disabled; dependent tests skip when the image is not already cached.
     """
     from tests_resources import container_ops as cops
 
@@ -433,37 +376,13 @@ def l4t_image_pulled(hardware_info_session):
         JETSON_TIMEOUT,
         key_filename=key_path,
     ) as ssh:
-        candidates = [cops.get_l4t_jetpack_image()]
-        selected_tag = cops.get_l4t_jetpack_image().rsplit(":", 1)[-1]
-        host_major = cops._parse_l4t_tuple(selected_tag)[0]
-        for tag in cops.PUBLISHED_L4T_JETPACK_TAGS:
-            image = f"nvcr.io/nvidia/l4t-jetpack:{tag}"
-            if image not in candidates and cops._parse_l4t_tuple(tag)[0] == host_major:
-                candidates.append(image)
-
-        last_err = ""
-        pulled = None
-        for image in candidates:
-            exists = ssh.sudo(f"podman image exists {image}", fail_on_rc=False)
-            if exists.exit_status == 0:
-                logger.info("[Setup] L4T image already present: %s", image)
-                pulled = image
-                break
-            result = ssh.sudo(f"podman pull {image}", timeout=900, fail_on_rc=False)
-            if result.exit_status == 0:
-                logger.info("[Setup] Pulled L4T image: %s", image)
-                pulled = image
-                break
-            last_err = (result.stderr or result.stdout).strip()[:500]
-            logger.warning("[Setup] Could not pull %s: %s", image, last_err)
-
-        if pulled is None:
+        image = cops.get_l4t_jetpack_image()
+        exists = ssh.sudo(f"podman image exists {image}", fail_on_rc=False)
+        if exists.exit_status != 0:
             pytest.skip(
-                f"Failed to pull any L4T jetpack image {candidates}: {last_err}"
+                f"L4T image is not cached: {image}. Automatic NGC pulls are disabled."
             )
-        if pulled != cops.get_l4t_jetpack_image():
-            cops.L4T_JETPACK_IMAGE = pulled
-            logger.info("[Setup] L4T_JETPACK_IMAGE updated to pulled image %s", pulled)
+        logger.info("[Setup] Using cached L4T image: %s", image)
     yield
 
 @pytest.fixture(scope="session", autouse=True)
@@ -481,26 +400,6 @@ def beaker_repo_session(hardware_info_session):
         key_filename=key_path,
     ) as ssh:
         _install_beaker_repo(ssh, RHEL_VERSION)
-    yield
-
-@pytest.fixture(scope="session", autouse=True)
-def nvidia_toolkit_session(hardware_info_session):
-    """Set up NVIDIA Container Toolkit for RC/production images."""
-    if IS_STAGE_BUILD:
-        logger.info("[Setup] Stage build detected — skipping NVIDIA Toolkit setup")
-        yield
-        return
-
-    logger.info("[Setup] RC/production build detected — ensuring NVIDIA Container Toolkit...")
-    with SSHConnection(
-        JETSON_HOST,
-        JETSON_USERNAME,
-        JETSON_PASSWORD or None,
-        JETSON_PORT,
-        JETSON_TIMEOUT,
-        key_filename=key_path,
-    ) as ssh:
-        _ensure_nvidia_container_toolkit(ssh)
     yield
 
 @pytest.fixture(scope="session", autouse=True)

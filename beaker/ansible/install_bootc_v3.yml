@@ -2,10 +2,13 @@
 # Ansible Playbook: Install bootc on Jetson Beaker Machines
 #
 # Usage:
-#   ansible-playbook -i inventory.yml install_bootc.yml \
+#   ansible-playbook -i inventory.yml install_bootc_v3.yml \
 #     -e "registry_user='Guy Gordani'" \
-#     -e "registry_pass='YOUR_TOKEN'" \
-#     --limit jetson-orin-05
+#     -e "registry_pass='YOUR_TOKEN'"
+#
+# For a public image, skip registry authentication:
+#   ansible-playbook -i inventory.yml install_bootc_v3.yml \
+#     -e "registry_login_required=false"
 #
 # With vault for credentials:
 #   ansible-playbook -i inventory.yml install_bootc.yml --ask-vault-pass
@@ -14,7 +17,8 @@
 #   ansible-playbook -i inventory.yml install_bootc.yml --check
 #
 # Based on: Installing bootc image on Jetson Beaker Machines - V3 (Google Doc).
-# No manual EFI boot entry creation; bootc team fixed boot manager handling.
+# bootc is responsible for bootloader installation; this playbook does not
+# inspect, reorder, or restore EFI entries.
 # Link: https://docs.google.com/document/d/1dyfA2f4EQjRhe3CP-JKi8S3K54ILlBg0hXQFFEnlpao
 
 - name: Install bootc on Jetson systems
@@ -23,21 +27,28 @@
   become: true
   
   vars:
-    # Defaults for bootc_image, registry_url, boot_restore_hours come from inventory.yml
+    # Defaults for bootc_image and registry_url come from inventory.yml
     # (override with -e e.g. -e "bootc_image_tag=...")
     auto_reboot: true
-    setup_boot_restore: true
-  
-  vars_files:
-    - vars/secrets.yml  # Contains registry_user and registry_pass (encrypted with ansible-vault)
+    install_nvidia_toolkit: true
+    registry_login_required: true
+    registry_user: ""
+    registry_pass: ""
   
   pre_tasks:
+    - name: Load registry credentials when available
+      ansible.builtin.include_vars:
+        file: vars/secrets.yml
+      when:
+        - registry_login_required | bool
+        - lookup('ansible.builtin.fileglob', playbook_dir + '/vars/secrets.yml', wantlist=True) | length > 0
+      no_log: true
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:
-          - registry_user is defined
-          - registry_pass is defined
-        fail_msg: "registry_user and registry_pass are required. Use -e 'registry_user=xxx registry_pass=xxx'"
+          - not (registry_login_required | bool) or (registry_user | length > 0 and registry_pass | length > 0)
+        fail_msg: "registry_user and registry_pass are required when registry_login_required=true"
     
     - name: Display target information
       ansible.builtin.debug:
@@ -56,55 +67,21 @@
         name: podman
         state: present
       tags: [podman]
-    
+
     #=========================================================================
-    # Step 2: Save original boot order
-    #=========================================================================
-    - name: Get current EFI boot configuration
-      ansible.builtin.command: efibootmgr
-      register: efi_boot_info
-      changed_when: false
-      tags: [boot]
-    
-    - name: Parse boot order
-      ansible.builtin.set_fact:
-        original_boot_order: "{{ efi_boot_info.stdout | regex_search('BootOrder: (.+)', '\\1') | first }}"
-      tags: [boot]
-    
-    - name: Find PXE boot entry
-      ansible.builtin.set_fact:
-        pxe_entry: "{{ efi_boot_info.stdout | regex_search('Boot([0-9A-Fa-f]{4})\\* .*PXEv4', '\\1') | first }}"
-      tags: [boot]
-    
-    - name: Display boot information
-      ansible.builtin.debug:
-        msg: |
-          Original boot order: {{ original_boot_order }}
-          PXE entry: Boot{{ pxe_entry }}
-      tags: [boot]
-    
-    - name: Save boot order to local file
-      ansible.builtin.copy:
-        content: |
-          # Boot order saved at {{ (ansible_date_time | default({'iso8601': 'unknown'})).iso8601 }}
-          # Host: {{ inventory_hostname }}
-          {{ efi_boot_info.stdout }}
-        dest: "/root/original_boot_order.txt"
-        mode: '0644'
-      tags: [boot]
-    
-    #=========================================================================
-    # Step 3: Login to container registry
+    # Step 2: Login to container registry
     #=========================================================================
     - name: Login to container registry
       ansible.builtin.command:
-        cmd: podman login -u '{{ registry_user }}' -p '{{ registry_pass }}' {{ registry_url }}
+        cmd: podman login --username '{{ registry_user }}' --password-stdin {{ registry_url }}
+        stdin: "{{ registry_pass }}"
       no_log: true  # Don't log credentials
       changed_when: true
+      when: registry_login_required | bool
       tags: [registry]
     
     #=========================================================================
-    # Step 4: Pull bootc image
+    # Step 3: Pull bootc image
     #=========================================================================
     - name: Pull bootc image
       ansible.builtin.command:
@@ -114,7 +91,7 @@
       tags: [image]
     
     #=========================================================================
-    # Step 5: Run bootc install to-existing-root
+    # Step 4: Run bootc install to-existing-root
     #=========================================================================
     - name: Run bootc install to-existing-root
       ansible.builtin.command:
@@ -137,90 +114,7 @@
       tags: [install]
     
     #=========================================================================
-    # Step 6: Set up boot restoration (restore original EFI order after timer)
-    # Note: bootc team fixed boot entry handling; no manual EFI entry creation.
-    #=========================================================================
-    - name: Create boot restoration script
-      ansible.builtin.copy:
-        dest: /etc/ostree/restore_boot.sh
-        mode: '0755'
-        content: |
-          #!/bin/bash
-          efibootmgr -o "$1"
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Create boot restoration systemd service
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/restore-bootorder.service
-        mode: '0644'
-        content: |
-          [Unit]
-          Description=Restore EFI Boot Order
-          
-          [Service]
-          Type=oneshot
-          ExecStart=/etc/ostree/restore_boot.sh {{ original_boot_order }}
-          
-          [Install]
-          WantedBy=multi-user.target
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Create boot restoration timer
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/restore-bootorder.timer
-        mode: '0644'
-        content: |
-          [Unit]
-          Description=Run Restore EFI Boot Order in {{ boot_restore_hours }}h
-          
-          [Timer]
-          OnActiveSec={{ boot_restore_hours }}h
-          Persistent=true
-          
-          [Install]
-          WantedBy=timers.target
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Reload systemd daemon
-      ansible.builtin.systemd:
-        daemon_reload: true
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Enable and start boot restoration timer
-      ansible.builtin.systemd:
-        name: restore-bootorder.timer
-        enabled: true
-        state: started
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Verify restore-bootorder timer
-      ansible.builtin.command: systemctl list-timers --all
-      register: timer_list
-      changed_when: false
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Display timer verification
-      ansible.builtin.debug:
-        msg: "{{ timer_list.stdout_lines | select('search', 'restore-bootorder') | list }}"
-      when: setup_boot_restore
-      tags: [restore]
-    
-    - name: Display restoration info
-      ansible.builtin.debug:
-        msg: |
-          Boot restoration timer set for {{ boot_restore_hours }}h (reservation {{ reservation_hours }}h minus 2h for safety)
-          Original boot order to restore: {{ original_boot_order }}
-      when: setup_boot_restore
-      tags: [restore]
-    
-    #=========================================================================
-    # Step 7: Reboot to new image
+    # Step 5: Reboot to new image
     #=========================================================================
     - name: Reboot to bootc image
       ansible.builtin.reboot:
@@ -230,14 +124,50 @@
       tags: [reboot]
     
     #=========================================================================
-    # Step 8: Verify deployment
+    # Step 6: Verify connection after reboot
     #=========================================================================
     - name: Wait for system to be accessible
       ansible.builtin.wait_for_connection:
         timeout: 300
       when: auto_reboot
       tags: [verify]
-    
+
+    #=========================================================================
+    # Step 7: Install NVIDIA Container Toolkit and configure CDI
+    #=========================================================================
+    - name: Add NVIDIA Container Toolkit repository
+      ansible.builtin.get_url:
+        url: https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo
+        dest: /etc/yum.repos.d/nvidia-container-toolkit.repo
+        mode: '0644'
+      when: install_nvidia_toolkit | bool
+      tags: [nvidia-toolkit]
+
+    - name: Install NVIDIA Container Toolkit
+      ansible.builtin.command:
+        cmd: dnf install -y --transient --nogpgcheck nvidia-container-toolkit
+      register: nvidia_toolkit_install
+      changed_when: "'Nothing to do' not in (nvidia_toolkit_install.stdout | default(''))"
+      when: install_nvidia_toolkit | bool
+      tags: [nvidia-toolkit]
+
+    - name: Ensure NVIDIA CDI directory exists
+      ansible.builtin.file:
+        path: /etc/cdi
+        state: directory
+        mode: '0755'
+      when: install_nvidia_toolkit | bool
+      tags: [nvidia-toolkit]
+
+    - name: Generate NVIDIA CDI configuration
+      ansible.builtin.command:
+        cmd: nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+      when: install_nvidia_toolkit | bool
+      tags: [nvidia-toolkit]
+
+    #=========================================================================
+    # Step 8: Verify deployment
+    #=========================================================================
     - name: Check bootc status
       ansible.builtin.command: bootc status
       register: bootc_status
@@ -267,9 +197,5 @@
           Host:   {{ inventory_hostname }}
           Kernel: {{ kernel_version.stdout }}
           Image:  {{ bootc_image }}
-          
-          Boot restore: {{ boot_restore_hours }}h (reservation {{ reservation_hours }}h)
-          Original boot order: {{ original_boot_order }}
           ========================================
       tags: [verify]
-

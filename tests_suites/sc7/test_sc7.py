@@ -74,6 +74,21 @@ def _close_quietly(ssh):
         pass
 
 
+def _xfail_if_boot_already_has_nvrng_resume_failure(ssh):
+    """Avoid repeating a destructive SC7 cycle after this boot proved broken."""
+    result = ssh.sudo(
+        "dmesg | grep -F "
+        "'tegra_se_sc7_check_error:234 SE HW is not idle, timeout' | tail -1",
+        fail_on_rc=False,
+    )
+    if result.exit_status == 0 and result.stdout.strip():
+        _close_quietly(ssh)
+        pytest.xfail(
+            "This boot already hit the L4T 39 SC7 NVRNG resume timeout; "
+            "repeating suspend risks another SSH outage"
+        )
+
+
 def _reconnect(timeout=RESUME_TIMEOUT):
     """Poll until SSH accepts connections again; return new SSHConnection."""
     key_path = _key_path()
@@ -367,6 +382,7 @@ class TestSC7Suspend:
             JETSON_PASSWORD or None, JETSON_PORT, JETSON_TIMEOUT,
             key_filename=_key_path(),
         )
+        _xfail_if_boot_already_has_nvrng_resume_failure(conn)
         self._ssh = conn
         yield conn
         _close_quietly(conn)
@@ -459,6 +475,7 @@ class TestSC7Recovery:
             JETSON_PASSWORD or None, JETSON_PORT, JETSON_TIMEOUT,
             key_filename=_key_path(),
         )
+        _xfail_if_boot_already_has_nvrng_resume_failure(pre)
         _set_wakealarm(pre, WAKEALARM_DELTA)
         self._success_before = _read_suspend_success(pre)
         _trigger_suspend(pre)

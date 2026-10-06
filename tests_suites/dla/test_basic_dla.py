@@ -18,13 +18,37 @@ from tests_resources.container_ops import (
 FILE = Path(os.path.realpath(__file__)).parent
 
 
+def _require_nvdla_compiler(ssh):
+    """Skip TensorRT tests when the JetPack host compiler library is absent."""
+    result = ssh.run(
+        "ls /usr/lib64/nvidia/libnvdla_compiler.so* 2>/dev/null",
+        fail_on_rc=False,
+    )
+    if result.exit_status != 0 or not result.stdout.strip():
+        pytest.skip(
+            "libnvdla_compiler.so is missing from the JetPack 7.2.1/RHEL 10 "
+            "host packages; TensorRT cannot link DLA samples"
+        )
+
+
 class TestDLA:
     """Test DLA functionality on Jetson devices."""
 
+    @pytest.fixture(scope="class", autouse=True)
+    def nvdla_compiler_available(self, ssh):
+        """Gate all DLA/TensorRT fixtures before any container build or pull."""
+        _require_nvdla_compiler(ssh)
+
     @pytest.fixture(scope="class")
-    def l4t_tensorrt_image(self, ssh, l4t_image_pulled):
+    def l4t_tensorrt_image(self, ssh):
         """Build L4T TensorRT image once per class, clean up after."""
-        tag = f"l4t-tensorrt-tests:{get_l4t_jetpack_image().split(':')[1]}"
+        image = get_l4t_jetpack_image()
+        exists = ssh.sudo(f"podman image exists {image}", fail_on_rc=False)
+        if exists.exit_status != 0:
+            pytest.skip(
+                f"L4T image is not cached: {image}. Automatic NGC pulls are disabled."
+            )
+        tag = f"l4t-tensorrt-tests:{image.split(':')[1]}"
         build_container_image(ssh, FILE / "Dockerfile.l4t_tensorrt", tag, suite_name="dla")
         yield tag
         # Teardown
