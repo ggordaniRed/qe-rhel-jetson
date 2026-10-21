@@ -124,6 +124,45 @@ ansible-playbook -i inventory.yml install_bootc.yml --ask-vault-pass \
 -e "reservation_hours=${RESERVATION_HOURS}"
 ```
 
+#### Validate the NVIDIA toolkit image layer on AGX-03
+
+Build the layer in the QE repository using the exact RHEL 9.8 base image being
+tested. If you are in `beaker/ansible`, run `cd ../..` to return to the QE
+repository root. Follow the
+[Jumpstarter build instructions](../jumpstarter/README.md#pull-and-build), then
+push the resulting local image to a temporary private Quay repository. Set the
+Beaker image variables to that repository and tag:
+
+```bash
+export JETSON_HOST="nvidia-jetson-agx-orin-03.khw.eng.bos2.dc.redhat.com"
+export REGISTRY="quay.io"
+export BOOTC_IMAGE_BASEURL="quay.io/<namespace>/<toolkit-image-repository>"
+export BOOTC_IMAGE_TAG="<toolkit-image-tag>"
+
+podman tag localhost/jetson-nvidia-toolkit:testing \
+  "${BOOTC_IMAGE_BASEURL}:${BOOTC_IMAGE_TAG}"
+podman push "${BOOTC_IMAGE_BASEURL}:${BOOTC_IMAGE_TAG}"
+```
+
+Reserve AGX-03 with the RHEL 9.8 provisioning distro:
+
+```bash
+cd beaker
+python3 scripts/reserve_jetson.py \
+  --target "$JETSON_HOST" --hours "$RESERVATION_HOURS" --distro RHEL-9.8.0
+cd ansible
+ansible-playbook -i inventory.yml install_bootc.yml --ask-vault-pass \
+  -e "target_host=${JETSON_HOST}" \
+  -e "registry_url=${REGISTRY}" \
+  -e "bootc_image_tag=${BOOTC_IMAGE_TAG}" \
+  -e "bootc_image_base=${BOOTC_IMAGE_BASEURL}" \
+  -e "reservation_hours=${RESERVATION_HOURS}"
+```
+
+The registry credentials in the Ansible vault must be valid for Quay. After
+reboot, use the direct pytest command below; Beaker deployment does not invoke
+the Jumpstarter wrapper.
+
 ### 5. Deploy JetPack RPMs (Alternative to Bootc)
 
 Instead of deploying a bootc image, you can install JetPack RPMs directly on a freshly provisioned RHEL system.

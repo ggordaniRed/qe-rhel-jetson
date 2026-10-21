@@ -145,70 +145,52 @@ def _install_beaker_repo(ssh, rhel_version: Optional[str]):
 
 def _ensure_nvidia_container_toolkit(ssh):
     """
-    Ensure NVIDIA container toolkit is installed and CDI is generated.
-    Only runs on RC/Production builds (non-stage/dev/sidecar).
+    Validate the NVIDIA toolkit and CDI supplied by the bootc image layer.
     """
-    repo_path = "/etc/yum.repos.d/nvidia-container-toolkit.repo"
-    repo_content = """[nvidia-container-toolkit]
-name=nvidia-container-toolkit
-baseurl=https://nvidia.github.io/libnvidia-container/stable/rpm/$basearch
-repo_gpgcheck=1
-gpgcheck=0
-enabled=1
-gpgkey=https://nvidia.github.io/libnvidia-container/gpgkey
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-
-[nvidia-container-toolkit-experimental]
-name=nvidia-container-toolkit-experimental
-baseurl=https://nvidia.github.io/libnvidia-container/experimental/rpm/$basearch
-repo_gpgcheck=1
-gpgcheck=0
-enabled=0
-gpgkey=https://nvidia.github.io/libnvidia-container/gpgkey
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-"""
-    
-    logger.info("[Setup] Checking NVIDIA Container Toolkit repo...")
-    # Check if repo file exists
-    result = ssh.run(f"ls {repo_path}", fail_on_rc=False)
-    if result.exit_status != 0:
-        logger.info("[Setup] NVIDIA toolkit repo missing, creating it...")
-        # Write content to a temporary file then move it to /etc/yum.repos.d/
-        # Use base64 to avoid shell escaping issues with $basearch
-        import base64
-        b64_content = base64.b64encode(repo_content.encode()).decode()
-        ssh.run(f"echo '{b64_content}' | base64 -d > /tmp/nvidia-toolkit.repo")
-        ssh.sudo(f"mv /tmp/nvidia-toolkit.repo {repo_path}")
-        ssh.sudo("dnf clean all")
-    
-    logger.info("[Setup] Ensuring nvidia-container-toolkit-base is installed...")
-    toolkit_package = ssh.run(
+    package = ssh.run(
         "rpm -q nvidia-container-toolkit-base",
+        timeout=20,
         fail_on_rc=False,
         print_output=False,
     )
-    if toolkit_package.exit_status == 0:
-        logger.info(
-            "[Setup] NVIDIA Container Toolkit already installed: %s",
-            toolkit_package.stdout.strip(),
+    if package.exit_status != 0:
+        raise RuntimeError(
+            "NVIDIA toolkit layer validation failed: "
+            "nvidia-container-toolkit-base is not installed"
         )
-    else:
-        ssh.sudo(
-            "dnf install -y nvidia-container-toolkit-base "
-            "--setopt=timeout=30 --setopt=retries=3",
-            timeout=600,
-            stream_output=True,
+
+    command = ssh.run(
+        "command -v nvidia-ctk",
+        timeout=20,
+        fail_on_rc=False,
+        print_output=False,
+    )
+    if command.exit_status != 0:
+        raise RuntimeError(
+            "NVIDIA toolkit layer validation failed: nvidia-ctk is unavailable"
         )
-    
-    logger.info("[Setup] Checking NVIDIA CDI status...")
-    # Generate CDI if it doesn't exist or isn't listed
-    cdi_check = ssh.run("nvidia-ctk cdi list", fail_on_rc=False)
-    if cdi_check.exit_status != 0 or "nvidia.com/gpu" not in cdi_check.stdout:
-        logger.info("[Setup] NVIDIA CDI not active, generating...")
-        ssh.sudo("mkdir -p /etc/cdi")
-        ssh.sudo("nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml")
+
+    service = ssh.run(
+        "systemctl is-active --quiet nvidia-ctk.service",
+        timeout=20,
+        fail_on_rc=False,
+        print_output=False,
+    )
+    if service.exit_status != 0:
+        raise RuntimeError(
+            "NVIDIA toolkit layer validation failed: nvidia-ctk.service is not active"
+        )
+
+    cdi = ssh.run(
+        "timeout -k 5s 15s nvidia-ctk cdi list",
+        timeout=25,
+        fail_on_rc=False,
+    )
+    if cdi.exit_status != 0 or "nvidia.com/gpu=all" not in cdi.stdout:
+        raise RuntimeError(
+            "NVIDIA toolkit layer validation failed: "
+            "CDI device nvidia.com/gpu=all is unavailable"
+        )
 
 def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[Dict[str, str]]:
     """Return target version dict for the given Jetpack version, or None."""

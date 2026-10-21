@@ -53,6 +53,7 @@ class PowerController(Protocol):
 
 
 class StorageController(Protocol):
+    def off(self) -> Any: ...
     def dut(self) -> Any: ...
     def flash(self, image_path: str, compression: Any) -> Any: ...
 
@@ -755,17 +756,26 @@ class BootCoordinator:
         console.sendline(command)
         console.expect_exact("WRAPPER_SSH_OK", timeout=30)
 
+    def power_on_with_storage(self) -> None:
+        """Reconnect the flashed USB disk before starting the device."""
+        self.client.power.off()
+        time.sleep(15)
+        # WA: reset the USB mux so UEFI sees the flashed disk, not stale eMMC.
+        self.logger.info("resetting USB storage before power-on")
+        self.client.storage.off()
+        time.sleep(3)
+        self.client.storage.dut()
+        time.sleep(10)
+        self.console_log.clear()
+        self.client.power.on()
+
     def run(self) -> None:
         reflash_attempted = False
         self._boot_deadline = time.monotonic() + self.settings.boot_deadline
         for attempt in range(self.settings.max_wrong_os_retries + 1):
             self.remaining_boot_time()
             self.logger.info("boot attempt %d", attempt + 1)
-            self.client.power.off()
-            self.client.power.off()
-            self.client.storage.dut()
-            self.console_log.clear()
-            self.client.power.on()
+            self.power_on_with_storage()
             got_login = False
             wrong_os = False
             for reconnect in range(self.settings.max_serial_reconnects + 1):
