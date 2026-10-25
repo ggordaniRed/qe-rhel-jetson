@@ -62,7 +62,15 @@ EOF
 ```bash
 podman login quay.io
 
-podman pull quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel97-ga-5140-61151-stage@sha256:<hash>
+export BASE_IMAGE="<exact-rhel-9.8-bootc-image-reference>"
+export TOOLKIT_IMAGE="localhost/jetson-nvidia-toolkit:testing"
+
+podman pull "$BASE_IMAGE"
+podman build --platform linux/arm64 \
+  --build-arg BASE_IMAGE="$BASE_IMAGE" \
+  --tag "$TOOLKIT_IMAGE" \
+  --file jumpstarter/Containerfile-toolkit \
+  jumpstarter/
 
 mkdir -p ./output && sudo chmod 777 ./output
 
@@ -73,8 +81,15 @@ sudo podman run --rm --privileged \
   -v ./output:/output \
   registry.redhat.io/rhel9/bootc-image-builder:latest build \
   --output /output --type raw --target-arch arm64 \
-  quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel97-ga-5140-61151-stage@sha256:<hash>
+  "$TOOLKIT_IMAGE"
 ```
+
+`Containerfile-toolkit` layers the pinned `nvidia-container-toolkit-base` package and
+Jetson library links onto the selected base image. The layer removes any stale CDI
+specification and enables the CDI generation service. The bootc image owns the
+service definition and its startup configuration.
+Use the resulting local image for disk creation; the original base image remains
+unchanged.
 
 ### Compress
 
@@ -279,7 +294,9 @@ vncviewer localhost:5900
 
 ## What wrapper.py Does
 
-1. Connects storage to DUT and power-cycles the device
+1. Powers off for 15 seconds, disconnects USB storage for 3 seconds, then reconnects
+   it for 10 seconds before power-on. This lets UEFI rediscover the flashed USB
+   disk instead of falling back to the old OS on internal eMMC.
 2. Waits for boot (serial console login prompt)
 3. Enables `PermitRootLogin yes` via serial console (if password auth is used)
 4. Opens SSH tunnel via Jumpstarter port forwarding
