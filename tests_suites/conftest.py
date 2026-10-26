@@ -436,7 +436,7 @@ def l4t_image_pulled(hardware_info_session):
     """Pre-pull L4T JetPack container image once per session.
     Podman caches the base layer — subsequent podman build FROM this image
     only downloads the test-specific layers on top."""
-    from tests_resources.container_ops import L4T_JETPACK_IMAGE
+    from tests_resources.container_ops import L4T_JETPACK_IMAGE, podman_command
     with SSHConnection(
         JETSON_HOST,
         JETSON_USERNAME,
@@ -445,7 +445,7 @@ def l4t_image_pulled(hardware_info_session):
         JETSON_TIMEOUT,
         key_filename=key_path,
     ) as ssh:
-        ssh.sudo(f"podman pull {L4T_JETPACK_IMAGE}", timeout=900)
+        ssh.sudo(podman_command(f"pull {L4T_JETPACK_IMAGE}"), timeout=900)
     yield
 
 @pytest.fixture(scope="session", autouse=True)

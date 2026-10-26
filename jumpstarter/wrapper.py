@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import collections
-import concurrent.futures
 import contextlib
 import logging
 import os
@@ -862,18 +861,14 @@ class ImagePreparer:
             self.logger.warning("image configuration is missing: %s", self.config_path)
             return
         config = yaml.safe_load(self.config_path.read_text()) or {}
-        images = config.get("images", [])
+        images = [image for image in config.get("images", []) if image.get("prepull", True)]
         if not images:
             raise RuntimeError("image configuration contains no images")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(images)) as executor:
-            futures = [
-                executor.submit(
-                    self._pull, address, settings, image, index, len(images)
-                )
-                for index, image in enumerate(images, 1)
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                future.result()
+        rest = int(config.get("rest_between_pulls", 0))
+        for index, image in enumerate(images, 1):
+            self._pull(address, settings, image, index, len(images))
+            if index < len(images) and rest > 0:
+                time.sleep(rest)
 
     def _pull(
         self,
@@ -884,6 +879,7 @@ class ImagePreparer:
         total: int,
     ) -> None:
         from infra_tests.ssh_client import SSHConnection
+        from tests_resources.container_ops import podman_command
 
         image_url = re.sub(
             r"\$\{([^}]+)\}",
@@ -902,7 +898,9 @@ class ImagePreparer:
             ) as ssh:
                 if (
                     ssh.sudo(
-                        f"podman image exists {shlex.quote(image_url)}",
+                        podman_command(
+                            f"image exists {shlex.quote(image_url)}"
+                        ),
                         fail_on_rc=False,
                     ).exit_status
                     == 0
@@ -913,7 +911,10 @@ class ImagePreparer:
                     return
                 ssh.sudo("sync; sync; sync", fail_on_rc=False)
                 ssh.sudo("echo 3 | tee /proc/sys/vm/drop_caches", fail_on_rc=False)
-                ssh.sudo(f"podman pull {shlex.quote(image_url)}", timeout=timeout)
+                ssh.sudo(
+                    podman_command(f"pull {shlex.quote(image_url)}"),
+                    timeout=timeout,
+                )
                 self.logger.info("[%d/%d] image pulled: %s", index, total, image_url)
         except Exception as error:
             if required:

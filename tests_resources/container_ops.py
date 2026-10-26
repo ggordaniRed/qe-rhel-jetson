@@ -7,12 +7,37 @@ Test execution happens via run_container() so each test gets individual pass/fai
 """
 import os
 import logging
+import shlex
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 # RHEL/Podman GPU flags (CDI-based, replaces Docker's --runtime nvidia)
 PODMAN_GPU_FLAGS = "--device nvidia.com/gpu=all --group-add keep-groups --security-opt label=disable --net=host"
+
+
+def podman_command(arguments: str = "") -> str:
+    """Build a remote Podman command with optional test storage settings.
+
+    The environment variables are intentionally evaluated at call time so
+    callers can configure them before creating an SSH fixture.  TMPDIR is
+    separate from Podman's graphroot: image pulls use both locations.
+    """
+    parts = []
+    tmpdir = os.getenv("JETSON_PODMAN_TMPDIR")
+    if tmpdir:
+        parts.append(f"TMPDIR={shlex.quote(tmpdir)}")
+
+    parts.append("podman")
+    root = os.getenv("JETSON_PODMAN_ROOT")
+    runroot = os.getenv("JETSON_PODMAN_RUNROOT")
+    if root:
+        parts.extend(["--root", shlex.quote(root)])
+    if runroot:
+        parts.extend(["--runroot", shlex.quote(runroot)])
+    if arguments:
+        parts.append(arguments)
+    return " ".join(parts)
 
 # Configurable L4T image tag — overridden at session start by set_l4t_image_from_version()
 L4T_JETPACK_IMAGE = os.getenv("L4T_JETPACK_IMAGE", "nvcr.io/nvidia/l4t-jetpack:r36.4.0")
@@ -135,7 +160,9 @@ def build_container_image(ssh, dockerfile_path, image_tag, context_files=None,
     Returns:
         image_tag (str) — the tag of the built (or existing) image
     """
-    check = ssh.sudo(f"podman image exists {image_tag}", fail_on_rc=False)
+    check = ssh.sudo(
+        podman_command(f"image exists {image_tag}"), fail_on_rc=False
+    )
     if check.exit_status == 0:
         logger.info("Image %s already exists, skipping build", image_tag)
         return image_tag
@@ -153,9 +180,17 @@ def build_container_image(ssh, dockerfile_path, image_tag, context_files=None,
         all_args["CACHEBUST"] = str(datetime.now().timestamp())
     args_str = " ".join(f"--build-arg {k}='{v}'" for k, v in all_args.items())
 
-    cmd = f"podman build -t {image_tag} {PODMAN_GPU_FLAGS} {args_str} {tmp}"
-    ssh.sudo(cmd, timeout=timeout)
-    return image_tag
+    cmd = f"{podman_command()} build -t {image_tag} {PODMAN_GPU_FLAGS} {args_str} {tmp}"
+    try:
+        ssh.sudo(cmd, timeout=timeout)
+        return image_tag
+    finally:
+        # A failed build can leave large untagged layers behind.  Prune only
+        # dangling images; keep named base images cached for later tests.
+        ssh.sudo(
+            f"{podman_command()} image prune -f", fail_on_rc=False,
+            print_output=False,
+        )
 
 
 def run_container(ssh, image_tag, command="", timeout=DEFAULT_RUN_TIMEOUT, extra_flags=""):
@@ -173,10 +208,16 @@ def run_container(ssh, image_tag, command="", timeout=DEFAULT_RUN_TIMEOUT, extra
     Returns:
         Result object with stdout, stderr, exit_status
     """
-    cmd = f"podman run --rm {PODMAN_GPU_FLAGS} {extra_flags} {image_tag} {command}"
+    cmd = f"{podman_command()} run --rm {PODMAN_GPU_FLAGS} {extra_flags} {image_tag} {command}"
     return ssh.sudo(cmd, timeout=timeout, fail_on_rc=False)
 
 
 def cleanup_container_image(ssh, image_tag):
     """Remove a built image to free disk space."""
-    ssh.sudo(f"podman rmi -f {image_tag}", fail_on_rc=False)
+    ssh.sudo(
+        f"{podman_command()} rmi -f {image_tag}", fail_on_rc=False
+    )
+    ssh.sudo(
+        f"{podman_command()} image prune -f", fail_on_rc=False,
+        print_output=False,
+    )

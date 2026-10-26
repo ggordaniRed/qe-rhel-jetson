@@ -46,10 +46,16 @@ class TestCUDA:
     def test_cuda_pytorch_container(self, ssh):
         """Test CUDA with PyTorch in a container (multiply tensors on GPU)."""
         tag = "cuda-pytorch-qe-tests"
-        build_container_image(ssh, FILE / "Dockerfile.pytorch", tag, suite_name="cuda-pytorch")
-        result = run_container(ssh, tag,
-            "python3 -c 'import torch; print(torch.rand(10).cuda() * torch.rand(10).cuda())'")
-        cleanup_container_image(ssh, tag)
+        try:
+            build_container_image(
+                ssh, FILE / "Dockerfile.pytorch", tag, suite_name="cuda-pytorch"
+            )
+            result = run_container(
+                ssh, tag,
+                "python3 -c 'import torch; print(torch.rand(10).cuda() * torch.rand(10).cuda())'",
+            )
+        finally:
+            cleanup_container_image(ssh, tag)
         assert result.exit_status == 0, f"CUDA PyTorch test failed: {result.stderr}"
 
     @pytest.mark.critical
@@ -99,8 +105,13 @@ class TestCUDA:
     def test_l4t_tensorflow_gpu(self, ssh):
         """Test TensorFlow GPU access via TensorFlow container (deviceQuery)."""
         tag = "cuda-tensorflow-qe-tests"
-        build_container_image(ssh, FILE / "Dockerfile.tensorflow", tag, suite_name="cuda-tensorflow")
-        result = run_container(ssh, tag, "deviceQuery", timeout=300)
-        cleanup_container_image(ssh, tag)
+        try:
+            build_container_image(
+                ssh, FILE / "Dockerfile.tensorflow", tag,
+                suite_name="cuda-tensorflow",
+            )
+            result = run_container(ssh, tag, "deviceQuery", timeout=300)
+        finally:
+            cleanup_container_image(ssh, tag)
         assert result.exit_status == 0, f"TensorFlow GPU test failed: {result.stderr}"
         assert "Result = PASS" in result.stdout, f"TensorFlow deviceQuery did not pass: {result.stdout}"

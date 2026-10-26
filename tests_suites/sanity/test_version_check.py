@@ -17,6 +17,11 @@ logger = getLogger(__name__)
 class TestVersionConsistency:
     """Cross-component version consistency checks."""
 
+    @staticmethod
+    def _base_jetpack_version(version):
+        """Ignore the kernel-release suffix on kernel-coupled RPMs."""
+        return version.split("_", 1)[0]
+
     def test_all_userspace_rpms_same_version(self, ssh):
         """All non-kmod nvidia-jetpack RPMs must have the same version as the core RPM."""
         rpm_versions = get_all_jetpack_rpm_versions(ssh)
@@ -34,10 +39,15 @@ class TestVersionConsistency:
             f"nvidia-jetpack core RPM not found. Found components: {list(userspace.keys())}"
         )
 
-        mismatched = {k: v for k, v in userspace.items() if v != core_version}
+        expected = self._base_jetpack_version(core_version)
+        mismatched = {
+            k: v for k, v in userspace.items()
+            if self._base_jetpack_version(v) != expected
+        }
         logger.info(f"Mismatched userspace RPMs: {mismatched}")
         assert not mismatched, (
-            f"Userspace RPM version mismatch (expected {core_version}): {mismatched}"
+            f"Userspace RPM version mismatch (expected base version {expected}): "
+            f"{mismatched}"
         )
 
     def test_kmod_version_gte_userspace(self, ssh):
