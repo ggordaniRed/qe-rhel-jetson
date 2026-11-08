@@ -1,9 +1,17 @@
 ARG L4T_JETPACK_IMAGE=nvcr.io/nvidia/l4t-jetpack:r36.4.0
 FROM ${L4T_JETPACK_IMAGE}
 RUN apt-get update && apt-get install -y make g++ pkg-config
-# Patch Rules.mk for NVIDIA library path (needed for linking)
-RUN sed -i "s|LDFLAGS :=|LDFLAGS := -L/usr/lib64/nvidia|" \
-  /usr/src/jetson_multimedia_api/samples/Rules.mk
+# Locate the library in the JetPack image or CDI mounts; the path differs
+# between Ubuntu-based L4T containers and RHEL hosts.
+RUN set -eu; \
+  nvjpeg_so="$(find /usr/lib /usr/lib64 /usr/local/cuda -name libnvjpeg.so -print -quit 2>/dev/null || true)"; \
+  if [ -z "$nvjpeg_so" ]; then \
+    echo "libnvjpeg.so is missing from the JetPack image and CDI mounts" >&2; \
+    exit 1; \
+  fi; \
+  nvjpeg_dir="${nvjpeg_so%/*}"; \
+  sed -i "s|LDFLAGS :=|LDFLAGS := -L${nvjpeg_dir}|" \
+    /usr/src/jetson_multimedia_api/samples/Rules.mk
 # COMPILE ONLY — test execution happens via podman run
 RUN make -C /usr/src/jetson_multimedia_api -j $(nproc)
 COPY run-mmapi-tests.sh /opt/run-mmapi-tests.sh

@@ -1,16 +1,22 @@
 ARG L4T_JETPACK_IMAGE=nvcr.io/nvidia/l4t-jetpack:r36.4.0
-FROM ${L4T_JETPACK_IMAGE}
+ARG CUDA_BASE_IMAGE=${L4T_JETPACK_IMAGE}
+FROM ${CUDA_BASE_IMAGE}
 
-# cuda-samples version — must match the CUDA toolkit in the L4T container.
-# Available tags: v12.0-v12.5 (Makefile), v12.8+ (CMake). No v12.6/v12.7 tags exist.
-# v12.5 is the latest compatible with CUDA 12.6 toolkit without compute_100 issues.
+# cuda-samples version — selected to match the CUDA toolkit in the base image.
 ARG CUDA_SAMPLES_VERSION=v12.5
 # Target categories to build (space-separated)
 ARG CUDA_SAMPLES_TARGETS="1_Utilities 0_Introduction"
+ARG CUDA_ARCHITECTURES=87
 
-RUN apt-get update && apt-get install -y cmake pkg-config git libdrm-dev make g++ libfreeimage-dev
+RUN if command -v apt-get >/dev/null 2>&1; then \
+      apt-get update && apt-get install -y cmake pkg-config git libdrm-dev make g++ libfreeimage-dev; \
+    elif command -v dnf >/dev/null 2>&1; then \
+      dnf install -y cmake pkgconf-pkg-config git make gcc-c++ && dnf clean all; \
+    else \
+      echo "No supported package manager found in CUDA base image" >&2; exit 1; \
+    fi
 
-# clone cuda-samples from outsource repository on github (l4t container doesn't have newer versions)
+# Fetch the CUDA Samples release that matches the selected toolkit.
 RUN git clone --branch ${CUDA_SAMPLES_VERSION} --depth 1 https://github.com/NVIDIA/cuda-samples.git /cuda-samples
 
 # NVRTC samples do JIT compilation at runtime and need CUDA headers (nv/target, cuda/std/*, etc.).
@@ -26,7 +32,7 @@ RUN for sample_dir in $(find /cuda-samples/Samples -mindepth 2 -maxdepth 2 -type
 # Build targeted CUDA samples.
 # <= v12.5 uses Makefile , >= v12.8 uses CMake.
 # Skips graphical samples (EGL/X11/GL) and missing runtime dependencies.
-# Each sample builds into /build/<sample_name>/<sample_name> for easy discovery.
+# Build each sample binary beside its source and data files for easy discovery.
 RUN version_num=$(echo ${CUDA_SAMPLES_VERSION} | sed 's/v//;s/\.//'); \
     for target in ${CUDA_SAMPLES_TARGETS}; do \
       target_dir="/cuda-samples/Samples/${target}"; \
@@ -53,8 +59,10 @@ RUN version_num=$(echo ${CUDA_SAMPLES_VERSION} | sed 's/v//;s/\.//'); \
           make -C ${sample_dir} -j$(nproc) 2>&1 || \
           echo "FAIL (non-fatal): ${sample_name}"; \
         elif [ -f "${sample_dir}/CMakeLists.txt" ]; then \
-          # CMake-based (v12.8+) — builds into sample_dir/build, binary stays alongside data files
-          cmake -S ${sample_dir} -B ${sample_dir}/build 2>&1 && \
+          # CMake-based (v12.8+) — put binaries alongside their sample data.
+          cmake -S ${sample_dir} -B ${sample_dir}/build \
+            -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
+            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${sample_dir} 2>&1 && \
           cmake --build ${sample_dir}/build -j$(nproc) 2>&1 || \
           echo "FAIL (non-fatal): ${sample_name}"; \
         else \
@@ -63,5 +71,12 @@ RUN version_num=$(echo ${CUDA_SAMPLES_VERSION} | sed 's/v//;s/\.//'); \
       done; \
     done
 
-# cuDNN conv_sample (bundled in L4T container at /usr/src/cudnn_samples_v*/conv_sample)
-RUN make -C /usr/src/cudnn_samples_v*/conv_sample clean && make -C /usr/src/cudnn_samples_v*/conv_sample -j$(nproc)
+# cuDNN conv_sample is bundled in L4T images. The CUDA-only base does not
+# include JetPack's sample sources, so the matching test skips on that base.
+RUN sample_dir=$(find /usr/src -maxdepth 1 -type d -name 'cudnn_samples_v*' -print -quit 2>/dev/null); \
+    if [ -n "${sample_dir}" ] && [ -d "${sample_dir}/conv_sample" ]; then \
+      make -C "${sample_dir}/conv_sample" clean && \
+      make -C "${sample_dir}/conv_sample" -j$(nproc); \
+    else \
+      echo "No bundled cuDNN sample sources in this base image; skipping build"; \
+    fi

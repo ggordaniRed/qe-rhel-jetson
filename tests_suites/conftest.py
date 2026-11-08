@@ -211,13 +211,20 @@ def _get_target_versions(jetpack_userspace_version: Optional[str]) -> Optional[D
 
     return None
 
-def _verify_target_versions(kernel_version_override: Optional[str] = None, target: Optional[Dict[str, Any]] = None) -> list[str]:
+def _verify_target_versions(
+    kernel_version_override: Optional[str] = None,
+    firmware_version_override: Optional[str] = None,
+    target: Optional[Dict[str, Any]] = None,
+) -> list[str]:
     """Verify detected versions match targets. Returns list of mismatch messages."""
     target = target or _get_target_versions(JETPACK_VERSION or L4T_VERSION)
     if not target:
         return []
-    if kernel_version_override:
+    if kernel_version_override or firmware_version_override:
         target = dict(target)
+    if firmware_version_override:
+        target["uefi_firmware_version"] = firmware_version_override
+    if kernel_version_override:
         target["kernel_version"] = kernel_version_override
     mismatches = []
     checks = [
@@ -359,6 +366,7 @@ def hardware_info_session(request):
     # Skip entire session if detected versions don't match targets
     mismatches = _verify_target_versions(
         kernel_version_override=request.config.getoption("--target-kernel-version"),
+        firmware_version_override=request.config.getoption("--target-uefi-firmware-version"),
         target=target
     )
     if mismatches:
@@ -433,13 +441,22 @@ def refresh_hardware_info_globals(ssh):
 
 @pytest.fixture(scope="session")
 def l4t_image_pulled(hardware_info_session):
-    """Pre-pull L4T JetPack once for suites that use L4T containers.
+    """Pull a compatible L4T image once for suites that need L4T containers.
 
     This is intentionally on-demand: DeepStream and native host tests do not
     need the large L4T base image, which matters on devices with small /tmp.
-    Podman caches the base layer for the dependent suite fixtures.
+    Podman caches the base layer for the dependent suite fixtures. If there is
+    no image on the host L4T major, dependent tests skip unless an override is set.
     """
-    from tests_resources.container_ops import L4T_JETPACK_IMAGE, podman_command
+    from tests_resources import container_ops
+
+    image = container_ops.get_l4t_jetpack_image()
+    if not image:
+        pytest.skip(
+            "No compatible L4T container image is available for this host. "
+            "Set L4T_JETPACK_IMAGE to an image matching the host JetPack/L4T version."
+        )
+
     with SSHConnection(
         JETSON_HOST,
         JETSON_USERNAME,
@@ -448,7 +465,7 @@ def l4t_image_pulled(hardware_info_session):
         JETSON_TIMEOUT,
         key_filename=key_path,
     ) as ssh:
-        ssh.sudo(podman_command(f"pull {L4T_JETPACK_IMAGE}"), timeout=900)
+        ssh.sudo(container_ops.podman_command(f"pull {image}"), timeout=900)
     yield
 
 @pytest.fixture(scope="session", autouse=True)
@@ -654,6 +671,11 @@ def pytest_addoption(parser):
         "--target-kernel-version",
         default=None,
         help="Override kernel_version in _target_versions (default: use value from jetson_hardware_specs.yaml)",
+    )
+    parser.addoption(
+        "--target-uefi-firmware-version",
+        default=None,
+        help="Override uefi_firmware_version in _target_versions for this run",
     )
     parser.addoption(
         "--bootc-switch-image",

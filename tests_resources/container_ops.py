@@ -7,6 +7,7 @@ Test execution happens via run_container() so each test gets individual pass/fai
 """
 import os
 import logging
+from typing import Optional
 import shlex
 from datetime import datetime
 
@@ -39,12 +40,14 @@ def podman_command(arguments: str = "") -> str:
         parts.append(arguments)
     return " ".join(parts)
 
-# Configurable L4T image tag — overridden at session start by set_l4t_image_from_version()
-L4T_JETPACK_IMAGE = os.getenv("L4T_JETPACK_IMAGE", "nvcr.io/nvidia/l4t-jetpack:r36.4.0")
+# Configurable L4T image tag — overridden at session start by set_l4t_image_from_version().
+# None means no compatible image was published for the detected host version.
+L4T_JETPACK_IMAGE: Optional[str] = os.getenv("L4T_JETPACK_IMAGE")
 
 # NGC l4t-jetpack version tags (image tags only — ignore .sig / SBOM / VEX).
 # There is no r36.5.x (JetPack 6.2.x) and no r39.x (JetPack 7 / RHEL 10.2).
-# Newest host driver + older container userspace is NVIDIA's supported combo.
+# Use an older image only within the same L4T major. Cross-major fallbacks can
+# silently mix incompatible JetPack userspace and host CDI libraries.
 # Keep newest-first; add a tag here when NVIDIA publishes it. (https://catalog.ngc.nvidia.com/orgs/nvidia/-/containers/l4t-jetpack/)
 PUBLISHED_L4T_JETPACK_TAGS = (
     "r36.4.0",  # JetPack 6.x latest — use this for RHEL 9.8 / host L4T 36.5.x
@@ -70,12 +73,12 @@ def _parse_l4t_tuple(version) -> tuple:
     return tuple(parts[:3])
 
 
-def resolve_l4t_jetpack_tag(l4t_version: str) -> str:
+def resolve_l4t_jetpack_tag(l4t_version: str) -> Optional[str]:
     """Pick a published NGC l4t-jetpack tag for the device's L4T version.
 
     Prefer an exact tag when NGC has it. Otherwise use the newest published
-    tag on the same L4T major that is still <= the host (newer host driver
-    can run older container userspace).
+    tag on the same L4T major that is still <= the host. Return None when NGC
+    has no image on that major; callers can skip or use an explicit image.
     """
     want = _parse_l4t_tuple(l4t_version)
     exact = "r" + str(l4t_version).lstrip("rR")
@@ -83,24 +86,19 @@ def resolve_l4t_jetpack_tag(l4t_version: str) -> str:
         return exact
 
     same_major_le = []
-    same_major = []
     for tag in PUBLISHED_L4T_JETPACK_TAGS:
         parsed = _parse_l4t_tuple(tag)
         if parsed[0] != want[0]:
             continue
-        same_major.append(tag)
         if parsed <= want:
             same_major_le.append((parsed, tag))
     if same_major_le:
         return max(same_major_le)[1]
-    if same_major:
-        return same_major[0]
     # No published tag on this L4T major (e.g. host r39.x / JetPack 7).
-    # Fall back to the newest NGC image so the pull is attempted, not skipped.
-    return PUBLISHED_L4T_JETPACK_TAGS[0]
+    return None
 
 
-def get_l4t_jetpack_image() -> str:
+def get_l4t_jetpack_image() -> Optional[str]:
     """Current L4T_JETPACK_IMAGE (read at call time, not import time)."""
     return L4T_JETPACK_IMAGE
 
@@ -109,29 +107,31 @@ def set_l4t_image_from_version(l4t_version: str) -> None:
     """Set L4T_JETPACK_IMAGE from device L4T, mapped to a published NGC tag.
 
     No-op when L4T_JETPACK_IMAGE is already set via the environment.
-    Host L4T 36.5.x has no NGC container; r36.4.0 is the compatible tag.
+    Host L4T 36.5.x has no NGC container; r36.4.0 is the same-major tag.
+    If NGC has no image for the host major, leave the image unset.
     """
     global L4T_JETPACK_IMAGE
     if "L4T_JETPACK_IMAGE" in os.environ:
         return
     tag = resolve_l4t_jetpack_tag(l4t_version)
+    if tag is None:
+        L4T_JETPACK_IMAGE = None
+        logger.warning(
+            "No published l4t-jetpack image matches host L4T %s. "
+            "L4T container tests will skip unless L4T_JETPACK_IMAGE is set "
+            "to a compatible image.",
+            l4t_version,
+        )
+        return
+
     L4T_JETPACK_IMAGE = f"nvcr.io/nvidia/l4t-jetpack:{tag}"
     exact = "r" + str(l4t_version).lstrip("rR")
-    host_major = _parse_l4t_tuple(l4t_version)[0]
-    tag_major = _parse_l4t_tuple(tag)[0]
     if tag == exact:
         logger.info("L4T_JETPACK_IMAGE auto-set to %s", L4T_JETPACK_IMAGE)
-    elif tag_major != host_major:
-        logger.warning(
-            "L4T_JETPACK_IMAGE set to %s — host L4T %s has no NGC series "
-            "(no r%d.x tags; JetPack 7 / r39 is unpublished). "
-            "Container tests may fail until NVIDIA publishes a matching image.",
-            L4T_JETPACK_IMAGE, l4t_version, host_major,
-        )
     else:
         logger.info(
-            "L4T_JETPACK_IMAGE set to %s (host L4T %s is not on NGC; "
-            "using newest published tag <= host, typically r36.4.0 on RHEL 9.8)",
+            "L4T_JETPACK_IMAGE set to %s (using the newest published image "
+            "on the same L4T series as host %s)",
             L4T_JETPACK_IMAGE, l4t_version,
         )
 
@@ -175,7 +175,9 @@ def build_container_image(ssh, dockerfile_path, image_tag, context_files=None,
 
     all_args = dict(build_args or {})
     if "L4T_JETPACK_IMAGE" not in all_args:
-        all_args["L4T_JETPACK_IMAGE"] = get_l4t_jetpack_image()
+        l4t_image = get_l4t_jetpack_image()
+        if l4t_image:
+            all_args["L4T_JETPACK_IMAGE"] = l4t_image
     if "CACHEBUST" not in all_args:
         all_args["CACHEBUST"] = str(datetime.now().timestamp())
     args_str = " ".join(f"--build-arg {k}='{v}'" for k, v in all_args.items())

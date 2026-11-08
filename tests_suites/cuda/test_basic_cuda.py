@@ -1,7 +1,7 @@
 """
 CUDA tests for Jetson RPMs.
 - PyTorch container: multiply two random tensors on the GPU.
-- L4T container: all non-graphical cuda-samples (auto-discovered), cuDNN conv_sample.
+- CUDA test base: CUDA samples, using L4T when available or CUDA UBI on R39.
 - TensorFlow container: GPU device validation.
 """
 import pytest
@@ -16,29 +16,56 @@ from tests_resources.container_ops import (
 
 FILE = Path(os.path.realpath(__file__)).parent
 
-# Configurable CUDA samples version (latest v12.x, backward compatible with CUDA 12.6 in L4T)
-CUDA_SAMPLES_VERSION = os.getenv("CUDA_SAMPLES_VERSION", "v12.5")
+# Pinned to the arm64 image manifest supplied for RHEL 10 / JetPack 7.2.1.
+CUDA_13_2_UBI10_IMAGE = (
+    "docker.io/nvidia/cuda:13.2.0-devel-ubi10"
+    "@sha256:0d121ab89568209d31515c8c6482b0765ca437fbac4b1c239874798928a99f7b"
+)
 # Target sample categories to build (space-separated)
 # Default: 1_Utilities + 0_Introduction (core validation, fast to build)
 # Extended: CUDA_SAMPLES_TARGETS="1_Utilities 0_Introduction 3_CUDA_Features 6_Performance"
 CUDA_SAMPLES_TARGETS = os.getenv("CUDA_SAMPLES_TARGETS", "1_Utilities 0_Introduction")
+CUDA_ARCHITECTURES = os.getenv("CUDA_ARCHITECTURES", "87")
+
+
+def _cuda_test_base_image():
+    """Use a matching L4T image when available, otherwise the CUDA-only UBI image."""
+    override = os.getenv("CUDA_TEST_BASE_IMAGE")
+    if override:
+        return override
+    return get_l4t_jetpack_image() or CUDA_13_2_UBI10_IMAGE
+
+
+def _cuda_samples_version(base_image):
+    """Pick CUDA Samples matching the selected toolkit unless explicitly overridden."""
+    override = os.getenv("CUDA_SAMPLES_VERSION")
+    if override:
+        return override
+    return "v12.5" if "l4t-jetpack" in base_image else "v13.2"
 
 class TestCUDA:
     """Test CUDA functionality on Jetson devices."""
 
     @pytest.fixture(scope="class")
-    def l4t_cuda_image(self, ssh, l4t_image_pulled):
-        """Build L4T CUDA samples image once per class, clean up after."""
-        tag = f"l4t-cuda-tests:{get_l4t_jetpack_image().split(':')[1]}-{CUDA_SAMPLES_VERSION}"
+    def l4t_cuda_image(self, ssh, hardware_info_session):
+        """Build the CUDA samples image once per class, clean up after."""
+        base_image = _cuda_test_base_image()
+        samples_version = _cuda_samples_version(base_image)
+        has_cudnn_samples = "l4t-jetpack" in base_image
+        image_name = base_image.split("@", 1)[0].rsplit("/", 1)[-1].replace(":", "-")
+        tag = f"cuda-tests:{image_name}-{samples_version}"
+        logger.info("Building CUDA tests from base image %s", base_image)
         build_container_image(
             ssh, FILE / "Dockerfile.l4t_cuda_samples", tag,
             build_args={
-                "CUDA_SAMPLES_VERSION": CUDA_SAMPLES_VERSION,
+                "CUDA_BASE_IMAGE": base_image,
+                "CUDA_SAMPLES_VERSION": samples_version,
                 "CUDA_SAMPLES_TARGETS": CUDA_SAMPLES_TARGETS,
+                "CUDA_ARCHITECTURES": CUDA_ARCHITECTURES,
             },
             suite_name="cuda",
         )
-        yield tag
+        yield {"tag": tag, "has_cudnn_samples": has_cudnn_samples}
         # Teardown
         cleanup_container_image(ssh, tag)
 
@@ -61,7 +88,7 @@ class TestCUDA:
     @pytest.mark.critical
     def test_l4t_device_query(self, ssh, l4t_cuda_image):
         """Test CUDA deviceQuery — enumerates GPU properties."""
-        result = run_container(ssh, l4t_cuda_image,
+        result = run_container(ssh, l4t_cuda_image["tag"],
             "bash -c 'cd /cuda-samples/Samples/1_Utilities/deviceQuery && ./deviceQuery'")
         assert result.exit_status == 0, f"deviceQuery failed: {result.stderr}"
         assert "Result = PASS" in result.stdout, f"deviceQuery did not pass: {result.stdout}"
@@ -74,7 +101,7 @@ class TestCUDA:
         find_cmd = " ".join(
             f"/cuda-samples/Samples/{t}" for t in CUDA_SAMPLES_TARGETS.split()
         )
-        result = run_container(ssh, l4t_cuda_image,
+        result = run_container(ssh, l4t_cuda_image["tag"],
             f"find {find_cmd} -maxdepth 2 -type f -executable")
         assert result.exit_status == 0, f"Failed to list samples: {result.stderr}"
         logger.info(f"CUDA samples built: {result.stdout}")
@@ -89,7 +116,7 @@ class TestCUDA:
             sample_name = os.path.basename(sample_path)
             sample_dir = os.path.dirname(sample_path)
             # Run from sample's own directory so sdkFindFilePath finds .fatbin, .cu, .pgm files
-            res = run_container(ssh, l4t_cuda_image,
+            res = run_container(ssh, l4t_cuda_image["tag"],
                 f"bash -c 'cd {sample_dir} && ./{sample_name}'")
             if res.exit_status != 0:
                 failed.append(f"FAILED ON SAMPLE: {sample_name} - {res.stdout.strip().split(chr(10))[-1]} | (exit {res.exit_status}): {res.stderr[:200]}")
@@ -97,7 +124,9 @@ class TestCUDA:
 
     def test_l4t_cudnn_conv_sample(self, ssh, l4t_cuda_image):
         """Test cuDNN conv_sample — validates cuDNN convolution."""
-        result = run_container(ssh, l4t_cuda_image,
+        if not l4t_cuda_image["has_cudnn_samples"]:
+            pytest.skip("CUDA-only base image does not include JetPack cuDNN sample sources")
+        result = run_container(ssh, l4t_cuda_image["tag"],
             "bash -c 'cd /usr/src/cudnn_samples_v*/conv_sample && ./conv_sample'")
         assert result.exit_status == 0, f"cuDNN conv_sample failed: {result.stderr}"
         assert "Test PASSED" in result.stdout, f"cuDNN conv_sample did not pass: {result.stdout}"

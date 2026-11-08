@@ -58,8 +58,16 @@ Tests can be configured via environment variables:
 
 L4T container tests can be configured via:
 
-- `L4T_JETPACK_IMAGE`: L4T container image (default: `nvcr.io/nvidia/l4t-jetpack:r36.4.0`)
-- `CUDA_SAMPLES_VERSION`: cuda-samples git tag (default: `v12.9`)
+- `L4T_JETPACK_IMAGE`: compatible L4T container image. The suite selects a
+  published image on the host L4T major when available; set this explicitly
+  for a custom image.
+- `CUDA_TEST_BASE_IMAGE`: base image for CUDA samples only. Defaults to the
+  compatible L4T image when available; otherwise it uses the pinned NVIDIA
+  CUDA 13.2 UBI 10 arm64 image for CUDA-only coverage.
+- `CUDA_SAMPLES_VERSION`: cuda-samples git tag. Defaults to `v12.5` for the
+  CUDA 12.6 L4T image and `v13.2` for the CUDA 13.2 UBI image.
+- `CUDA_ARCHITECTURES`: CMake CUDA architecture for standalone samples
+  (default: `87` for Jetson Orin; set `110` for Jetson Thor).
 
 ## Running Tests
 
@@ -156,7 +164,16 @@ On RHEL 9, camera kmods (`tegra_camera`, `nvhost_isp`, `nvcsi`, `tegra_vi`, …)
 |-------|------------|
 | L4T JetPack container | NGC has **no `r36.5.x`** (or `r39.x` / JetPack 7). Host L4T 36.5.x uses `nvcr.io/nvidia/l4t-jetpack:r36.4.0` (newer host driver + older container userspace). Published tags: `r36.4.0`, `r36.3.0`, `r36.2.0`, `r35.4.1`, `r35.3.1`, `r35.2.1`, `r35.1.0`. Override with `L4T_JETPACK_IMAGE`. |
 | DeepStream | Default is `nvcr.io/nvidia/deepstream:7.1-samples-multiarch` (Jetson samples). Version, plugins, `nvvideoconvert`, and `nvstreammux` run. Sample **inference** may fail: this image often has neither `nvv4l2decoder` nor `avdec_h264`. The dGPU Triton image (`7.1-triton-multiarch`) prints driver `560.28+ UNAVAILABLE` on L4T; that banner is ignored, not used as a skip. Set `DEEPSTREAM_IMAGE` to a Jetson `deepstream-l4t` tag if you need full inference. |
-| L4T image pull | Only CUDA/DLA/PVA/MMAPI fixtures pull `l4t-jetpack`. SC7/RTC/ISP do not. |
+| L4T image pull | DLA/PVA/MMAPI require `l4t-jetpack`; CUDA uses it when available and falls back to its CUDA-only base image otherwise. SC7/RTC/ISP do not pull container images. |
+
+On RHEL 10.2 / L4T 39, no matching NGC `l4t-jetpack` image is available. The
+CUDA sample tests use the pinned CUDA 13.2 UBI 10 arm64 image on that host.
+The cuDNN sample-source test remains skipped because that base does not ship
+JetPack's cuDNN sample sources. DLA/PVA/MMAPI tests still skip unless
+`L4T_JETPACK_IMAGE` is set to a compatible R39 image. The suite does not run an
+R36 userspace image on the R39 host by default.
+The DLA/TensorRT tests also require `/usr/lib64/nvidia/libnvdla_compiler.so`
+to be available to the host CDI runtime.
 
 ### Hardware / product spec
 
@@ -170,7 +187,7 @@ On RHEL 9, camera kmods (`tegra_camera`, `nvhost_isp`, `nvcsi`, `tegra_vi`, …)
 
 ### Session-level (entire pytest run skipped)
 
-`hardware_info_session` skips the **whole session** if the model is not in `jetson_hardware_specs.yaml`, RHEL/JetPack is missing, or detected versions do not match `_target_versions` (override kernel with `--target-kernel-version`).
+`hardware_info_session` skips the **whole session** if the model is not in `jetson_hardware_specs.yaml`, RHEL/JetPack is missing, or detected versions do not match `_target_versions`. For a one-off run on a board with a different kernel or UEFI firmware, use `--target-kernel-version` or `--target-uefi-firmware-version`; the session summary still reports the detected values.
 
 ### Other environment skips
 

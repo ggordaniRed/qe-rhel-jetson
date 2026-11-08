@@ -318,7 +318,7 @@ class TestVIC:
         assert verify.exit_status == 0, "VIC -> JPEG encode produced empty or missing file"
         ssh.sudo("rm -f /tmp/vic_test.jpg", fail_on_rc=False)
 
-    def test_vic_to_multi_jpeg_encode(self, ssh):
+    def test_vic_to_multi_jpeg_encode(self, ssh, gst_plugins_installed):
         """Test VIC producing multiple JPEG files via multifilesink."""
         ssh.sudo("rm -f /tmp/vic_multi_*.jpeg", fail_on_rc=False)
         result = ssh.sudo(

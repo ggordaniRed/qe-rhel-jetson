@@ -29,19 +29,39 @@
     # Defaults for bootc_image, registry_url come from inventory.yml
     # (override with -e e.g. -e "bootc_image_tag=...")
     auto_reboot: true
+    # Set use_local_image=true and provide local_image_archive to transfer and
+    # load an OCI archive on the Jetson instead of pulling from a registry.
+    use_local_image: false
+    local_image_archive: ""
+    local_image_size_gb: 0
     # Set to false with -e "restore_boot_order=false" to keep bootc first in boot order
     restore_boot_order: true
-  
-  vars_files:
-    - vars/secrets.yml  # Contains registry_user and registry_pass (encrypted with ansible-vault)
-  
+
   pre_tasks:
+    - name: Load registry credentials from Ansible Vault
+      ansible.builtin.include_vars:
+        file: vars/secrets.yml
+      when: not (use_local_image | bool)
+
+    - name: Inspect local bootc archive on the controller
+      ansible.builtin.stat:
+        path: "{{ local_image_archive }}"
+      register: local_bootc_archive
+      delegate_to: localhost
+      become: false
+      when: use_local_image | bool
+
+    - name: Set local archive size in GiB
+      ansible.builtin.set_fact:
+        local_image_size_gb: "{{ ((local_bootc_archive.stat.size | int + 1073741823) // 1073741824) | int }}"
+      when: use_local_image | bool
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:
-          - registry_user is defined
-          - registry_pass is defined
-        fail_msg: "registry_user and registry_pass are required. Use -e 'registry_user=xxx registry_pass=xxx'"
+          - (use_local_image | bool) or (registry_user is defined and registry_pass is defined)
+          - (not (use_local_image | bool)) or (local_image_archive | length > 0 and local_bootc_archive.stat.exists)
+        fail_msg: "Registry credentials are required for registry images; local mode requires an existing local_image_archive."
     
     - name: Display target information
       ansible.builtin.debug:
@@ -105,6 +125,7 @@
         cmd: podman login {{ registry_url }} -u "{{ registry_user }}" -p "{{ registry_pass }}"
       no_log: true  # Don't log credentials
       changed_when: true
+      when: not (use_local_image | bool)
       tags: [registry]
     
     #=========================================================================
@@ -119,8 +140,40 @@
     - name: Ensure sufficient disk space for container image
       ansible.builtin.assert:
         that:
-          - disk_space.stdout | trim | int > 10
-        fail_msg: "Insufficient disk space. Need at least 10GB free, have {{ disk_space.stdout | trim }}GB"
+          - disk_space.stdout | trim | int > (10 + (local_image_size_gb | int))
+        fail_msg: "Insufficient disk space for the image and archive. Need more than {{ 10 + (local_image_size_gb | int) }}GB free, have {{ disk_space.stdout | trim }}GB"
+      tags: [image]
+
+    - name: Copy local bootc archive to the Jetson
+      ansible.builtin.copy:
+        src: "{{ local_image_archive }}"
+        dest: /var/tmp/jetson-bootc-image.oci
+        mode: '0600'
+      when: use_local_image | bool
+      tags: [image]
+
+    - name: Load local bootc archive into Podman
+      ansible.builtin.command:
+        cmd: podman load --input /var/tmp/jetson-bootc-image.oci
+      register: local_image_load
+      async: 1800
+      poll: 15
+      changed_when: true
+      when: use_local_image | bool
+      tags: [image]
+
+    - name: Verify local bootc image was loaded
+      ansible.builtin.command:
+        cmd: podman image exists {{ bootc_image }}
+      changed_when: false
+      when: use_local_image | bool
+      tags: [image]
+
+    - name: Remove transferred OCI archive
+      ansible.builtin.file:
+        path: /var/tmp/jetson-bootc-image.oci
+        state: absent
+      when: use_local_image | bool
       tags: [image]
 
     - name: Pull bootc image
@@ -130,6 +183,7 @@
       changed_when: "'Copying' in pull_result.stdout or 'Writing' in pull_result.stderr"
       async: 1800
       poll: 15
+      when: not (use_local_image | bool)
       tags: [image]
 
     #=========================================================================
@@ -273,7 +327,7 @@
       ansible.builtin.command:
         cmd: >
           dnf config-manager --add-repo
-          https://download.devel.redhat.com/rhel-{{ rhel_major_version }}/nightly/RHEL-{{ rhel_major_version }}/latest-RHEL-{{ rhel_version }}.0/compose/AppStream/aarch64/os/
+          https://download.devel.redhat.com/rhel-{{ rhel_major_version }}/nightly/RHEL-{{ rhel_major_version }}/latest-RHEL-{{ rhel_version }}/compose/AppStream/aarch64/os/
       register: appstream_repo_result
       changed_when: appstream_repo_result.rc == 0
       failed_when: false
@@ -283,7 +337,7 @@
       ansible.builtin.command:
         cmd: >
           dnf config-manager --add-repo
-          https://download.devel.redhat.com/rhel-{{ rhel_major_version }}/nightly/RHEL-{{ rhel_major_version }}/latest-RHEL-{{ rhel_version }}.0/compose/BaseOS/aarch64/os/
+          https://download.devel.redhat.com/rhel-{{ rhel_major_version }}/nightly/RHEL-{{ rhel_major_version }}/latest-RHEL-{{ rhel_version }}/compose/BaseOS/aarch64/os/
       register: baseos_repo_result
       changed_when: baseos_repo_result.rc == 0
       failed_when: false
