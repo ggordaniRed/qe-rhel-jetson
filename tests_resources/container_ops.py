@@ -136,7 +136,7 @@ def set_l4t_image_from_version(l4t_version: str) -> None:
         )
 
 # Default building container image timeout in seconds (30 minutes)
-DEFAULT_BUILD_TIMEOUT = 900
+DEFAULT_BUILD_TIMEOUT = 1800
 # Default running container timeout in seconds (10 minutes)
 DEFAULT_RUN_TIMEOUT = 600
 

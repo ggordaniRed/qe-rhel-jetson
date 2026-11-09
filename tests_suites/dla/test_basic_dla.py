@@ -23,7 +23,19 @@ class TestDLA:
 
     @pytest.fixture(scope="class")
     def dla_runtime_available(self, ssh):
-        """Skip TensorRT tests when the host CDI DLA library is absent."""
+        """Skip DLA tests when hardware or the JetPack release lacks DLA support."""
+        spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
+        if not spec.get("dla", {}).get("supported"):
+            pytest.skip("DLA is not supported on this hardware")
+
+        jetpack = str(_conftest.JETPACK_VERSION or "")
+        l4t = str(_conftest.L4T_VERSION or "")
+        if jetpack in {"7.2", "7.2.1"} or l4t in {"39.2", "39.2.1"}:
+            pytest.skip(
+                "DLA is unavailable on JetPack 7.2 / L4T 39.2. NVIDIA says DLA "
+                "support will arrive in a future TensorRT release."
+            )
+
         result = ssh.run(
             "ls /usr/lib64/nvidia/libnvdla_compiler.so* 2>/dev/null",
             fail_on_rc=False,
@@ -34,6 +46,11 @@ class TestDLA:
                 "TensorRT's plugin cannot load in the container without this "
                 "JetPack DLA runtime library."
             )
+
+    @pytest.fixture(scope="class")
+    def l4t_dla_tensorrt_image(self, dla_runtime_available, l4t_tensorrt_image):
+        """Build/use the TensorRT image only when DLA is supported."""
+        return l4t_tensorrt_image
 
     @pytest.fixture(scope="class")
     def l4t_tensorrt_image(self, ssh, l4t_image_pulled):
@@ -47,38 +64,29 @@ class TestDLA:
     @pytest.mark.critical
     def test_dla_OnnxMNIST_sample(self, ssh, dla_runtime_available):
         """Test DLA with sample of ONNX model (OnnxMNIST) in TensorRT container (--useDLACore=0)."""
-        spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
         tag = "dla-tensorrt-qe-tests"
         build_container_image(ssh, FILE / "Dockerfile.tensorrt", tag, suite_name="dla-tensorrt")
         result = run_container(ssh, tag,
             "/workspace/tensorrt/bin/sample_onnx_mnist --useDLACore=0")
         cleanup_container_image(ssh, tag)
-        if not spec.get("dla").get("supported"):
-          assert result.exit_status != 0, "DLA test passed, but not supported (see jetson_hardware_specs.yaml)"
-        else:
-          assert result.exit_status == 0, f"DLA test failed, RC not 0: {result.stderr}"
-          assert ("[V] [TRT] [DlaLayer]" in result.stdout
-          ), f"DLA test failed - expected DlaLayer in output: {result.stderr}"
+        assert result.exit_status == 0, f"DLA test failed, RC not 0: {result.stderr}"
+        assert "[V] [TRT] [DlaLayer]" in result.stdout, (
+            f"DLA test failed - expected DlaLayer in output: {result.stderr}"
+        )
 
     @pytest.mark.critical
-    def test_l4t_trtexec_dla(
-        self, ssh, dla_runtime_available, l4t_tensorrt_image
-    ):
+    def test_l4t_trtexec_dla(self, ssh, l4t_dla_tensorrt_image):
         """Test TensorRT via trtexec with ResNet50 model on all DLA cores.
         Iterates over all expected amount of DLA cores by jetson_hardware_specs.yaml. (Skips if DLA not supported)"""
         spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
-        if not spec.get("dla").get("supported"):
-            pytest.skip("DLA not supported on this hardware")
         cores = spec.get("dla").get("cores")
         for core in range(cores):
-            result = run_container(ssh, l4t_tensorrt_image,
+            result = run_container(ssh, l4t_dla_tensorrt_image,
                 f"/usr/src/tensorrt/bin/trtexec --onnx=/usr/src/tensorrt/data/resnet50/ResNet50.onnx "
                 f"--useDLACore={core} --allowGPUFallback --fp16")
             assert result.exit_status == 0, f"TensorRT DLA core {core} failed: {result.stderr}"
 
-    def test_l4t_trtexec_gpu(
-        self, ssh, dla_runtime_available, l4t_tensorrt_image
-    ):
+    def test_l4t_trtexec_gpu(self, ssh, l4t_tensorrt_image):
         """Test TensorRT on GPU when its image and plugin runtime are available."""
         result = run_container(ssh, l4t_tensorrt_image,
             "/usr/src/tensorrt/bin/trtexec --onnx=/usr/src/tensorrt/data/resnet50/ResNet50.onnx --fp16")

@@ -1,0 +1,51 @@
+version: 1
+
+# RPMs installed on the Jetson before the selected tests run. Packages built
+# inside test containers remain declared in their Dockerfiles.
+rhel:
+  "9":
+    groups:
+      can_bus:
+        required: [can-utils]
+      gstreamer:
+        required:
+          - gstreamer1-plugins-good
+          - gstreamer1-plugins-bad-free
+      i2c_tools:
+        required: [i2c-tools]
+      legacy_display:
+        required: [grubby]
+      pci:
+        required: [pciutils]
+      usb:
+        required: [usbutils]
+      v4l_utils:
+        optional: [v4l-utils]
+    conditional:
+      - group: gstreamer
+        capability: video_enc.supported
+        equals: false
+        required: [gstreamer1-plugin-openh264]
+  "10":
+    groups:
+      can_bus:
+        required: [can-utils]
+      gstreamer:
+        required:
+          - gstreamer1-plugins-good
+          - gstreamer1-plugins-bad-free
+      i2c_tools:
+        required: [i2c-tools]
+      legacy_display:
+        required: [grubby]
+      pci:
+        required: [pciutils]
+      usb:
+        required: [usbutils]
+      v4l_utils:
+        optional: [v4l-utils]
+    conditional:
+      - group: gstreamer
+        capability: video_enc.supported
+        equals: false
+        required: [gstreamer1-plugin-openh264]

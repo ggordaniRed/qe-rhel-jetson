@@ -42,9 +42,25 @@ tests_suites/
 
 ## Requirements
 
+Run this from the repository root before invoking pytest:
+
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
+
+`requirements.txt` lists Python packages for the test runner. Host RPM
+dependencies for the selected tests are declared separately in
+[`dependencies/host-rpms.yaml`](dependencies/host-rpms.yaml) and installed on the
+Jetson once, before test execution. Tests declare their dependency groups with
+`@pytest.mark.requires_test_rpms(...)`; do not add `dnf install` commands to
+individual test bodies. Optional RPMs, such as `v4l-utils` on RHEL 9.8, are
+attempted during setup and the related tests skip if their tools remain
+unavailable.
+
+Packages installed inside test containers stay in the corresponding Dockerfile.
+When adding a test, record any new runner-side or Jetson-side dependencies in
+their respective manifests and any container build dependencies in that
+container's Dockerfile.
 
 ## Configuration
 
@@ -174,6 +190,9 @@ JetPack's cuDNN sample sources. DLA/PVA/MMAPI tests still skip unless
 R36 userspace image on the R39 host by default.
 The DLA/TensorRT tests also require `/usr/lib64/nvidia/libnvdla_compiler.so`
 to be available to the host CDI runtime.
+On JetPack 7.2 / L4T 39.2, DLA functional tests skip because NVIDIA says DLA
+support will come in a future TensorRT release:
+[NVIDIA forum response](https://forums.developer.nvidia.com/t/dla-runtime-unavailable-on-jetpack-7-2-l4t-r39-2-cannot-create-dla-engine/373788/4).
 
 ### Hardware / product spec
 

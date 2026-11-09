@@ -48,6 +48,7 @@ class TestPCIs:
         assert result.exit_status == 0, f"Failed to list PCI devices: {result.stderr}"
         assert len(result.stdout.splitlines()) > 0, "No PCI devices found"
 
+    @pytest.mark.requires_test_rpms("pci")
     def test_pci_gen_capability(self, ssh):
         """
         Test PCIe generation capability matches hardware spec.
@@ -64,8 +65,6 @@ class TestPCIs:
         
         if not pci_spec:
             pytest.skip("No PCIe spec defined for this hardware")
-        
-        ssh.sudo("dnf install pciutils -y")
         
         result = ssh.sudo("lspci -vv | grep -P 'LnkCap:'", fail_on_rc=False)
         assert result.exit_status == 0, "No PCIe LnkCap information found. Is lspci working?"

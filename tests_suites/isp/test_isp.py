@@ -275,11 +275,7 @@ class TestISPDeviceTree:
 
 
 def _ensure_v4l_utils(ssh):
-    """Install v4l-utils if needed. Return True when media-ctl and v4l2-ctl exist."""
-    check = ssh.run("which v4l2-ctl && which media-ctl", fail_on_rc=False)
-    if check.exit_status == 0:
-        return True
-    ssh.sudo("dnf install -y v4l-utils", fail_on_rc=False)
+    """Check whether optional v4l-utils binaries are available after setup."""
     check = ssh.run("which v4l2-ctl && which media-ctl", fail_on_rc=False)
     return check.exit_status == 0
 
@@ -287,6 +283,7 @@ def _ensure_v4l_utils(ssh):
 class TestISPCapability:
     """Verify ISP tooling and capability detection."""
 
+    @pytest.mark.requires_test_rpms("v4l_utils")
     def test_v4l2_utils_installed(self, ssh):
         """v4l2-ctl/media-ctl are used for live topology; skip if the RPM is not in repos.
 
@@ -301,6 +298,7 @@ class TestISPCapability:
             )
         logger.info("v4l2-utils: %s", ssh.run("rpm -q v4l-utils", fail_on_rc=False).stdout.strip())
 
+    @pytest.mark.requires_test_rpms("v4l_utils")
     def test_media_ctl_topology(self, ssh):
         """media-ctl should enumerate ISP/VI/sensor links if camera modules are loaded."""
         if not _ensure_v4l_utils(ssh):
@@ -318,6 +316,7 @@ class TestISPCapability:
                             if "isp" in l.lower() or "vi" in l.lower() or "nvcsi" in l.lower()]
             logger.info("ISP/VI/NVCSI entities: %s", isp_entities)
 
+    @pytest.mark.requires_test_rpms("v4l_utils")
     def test_v4l2_ctl_list_devices(self, ssh):
         """v4l2-ctl should list ISP/VI V4L2 devices if the pipeline is active."""
         if not _ensure_v4l_utils(ssh):

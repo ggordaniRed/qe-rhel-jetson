@@ -110,8 +110,6 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -r beaker/requirements.txt
-          pip install pytest pytest-html pytest-timeout
 
       #========================================================================
       # Authentication Setup (Secure)

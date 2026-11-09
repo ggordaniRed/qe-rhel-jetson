@@ -161,7 +161,6 @@ def set_kernel_arg(ssh, arg):
 
     # Try grubby first
     logger.info("Adding kernel argument '%s' via grubby", arg)
-    ssh.sudo("dnf install grubby -y")
     ssh.sudo(f"grubby --update-kernel=ALL --args={arg}")
 
     # Verify grubby actually added it to the default boot entry

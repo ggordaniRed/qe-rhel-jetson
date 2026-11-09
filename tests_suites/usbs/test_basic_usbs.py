@@ -8,6 +8,7 @@ Based on test_basic.py and test_basic_locally.py from edge-ai-image-pipelines.
 # hub/4p = 4x Ports
 
 import re
+import pytest
 from tests_suites import conftest as _conftest
 
 
@@ -20,6 +21,7 @@ class TestUSBs:
         assert result.exit_status == 0, f"Failed to list USB devices: {result.stderr}"
         assert len(result.stdout.splitlines()) > 0, "No USB devices found"
 
+    @pytest.mark.requires_test_rpms("usb")
     def test_usb_spec(self, ssh):
         """
         Test USB specification against lsusb output.
@@ -36,7 +38,6 @@ class TestUSBs:
         match among themselves.
         """
         spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
-        ssh.sudo("dnf install usbutils -y")  # for lsusb cli tool
         usbs = spec.get("usbs")
 
         # Group spec by (ports, speed): count controllers with identical config

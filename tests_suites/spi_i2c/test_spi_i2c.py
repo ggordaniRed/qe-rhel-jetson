@@ -32,24 +32,25 @@ class TestI2C:
         buses = result.stdout.strip().splitlines()
         logger.info("Found %d I2C bus(es): %s", len(buses), ", ".join(buses))
 
+    @pytest.mark.requires_test_rpms("i2c_tools")
     def test_i2c_tools_installed(self, ssh):
-        """Install i2c-tools (i2cdetect, i2cget, etc.)."""
-        ssh.sudo("dnf install -y i2c-tools", fail_on_rc=False)
+        """Verify i2c-tools (i2cdetect, i2cget, etc.) are installed by session setup."""
         result = ssh.run("which i2cdetect", fail_on_rc=False)
         assert result.exit_status == 0, (
-            "i2cdetect not found after install attempt. "
+            "i2cdetect not found after test dependency setup. "
             "i2c-tools package may be unavailable."
         )
 
+    @pytest.mark.requires_test_rpms("i2c_tools")
     def test_i2c_list_buses(self, ssh):
         """i2cdetect -l must list at least one I2C adapter."""
-        ssh.sudo("dnf install -y i2c-tools", fail_on_rc=False)
         result = ssh.sudo("i2cdetect -l", fail_on_rc=False)
         assert result.exit_status == 0, f"i2cdetect -l failed: {result.stderr}"
         lines = [l for l in result.stdout.splitlines() if l.strip()]
         assert len(lines) > 0, "i2cdetect -l returned no I2C adapters"
         logger.info("I2C adapters:\n%s", result.stdout)
 
+    @pytest.mark.requires_test_rpms("i2c_tools")
     def test_i2c_scan_detects_devices(self, ssh):
         """
         Scan all I2C buses and verify that at least one device responds.
@@ -58,8 +59,6 @@ class TestI2C:
         so at least one address should show up as a hex value or UU (driver
         already claimed the device).
         """
-        ssh.sudo("dnf install -y i2c-tools", fail_on_rc=False)
-
         bus_list = ssh.sudo("i2cdetect -l", fail_on_rc=False)
         assert bus_list.exit_status == 0, "Cannot list I2C buses"
 

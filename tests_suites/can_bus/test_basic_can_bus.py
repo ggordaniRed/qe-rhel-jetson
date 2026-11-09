@@ -29,6 +29,7 @@ class TestCANBus:
         result = ssh.sudo("ip -o link show type can")
         assert len(result.stdout.splitlines()) > 0, "No CAN bus interfaces found (should be part of Jetson SoC)"
     
+    @pytest.mark.requires_test_rpms("can_bus")
     def test_can_loopback(self, ssh):
         """
         Test CAN bus loopback:
@@ -48,7 +49,6 @@ class TestCANBus:
 
         dump_log = "/tmp/candump_loopback.log"
         try:
-            ssh.sudo("dnf install can-utils -y") # for candump and cansend cli tools
             # enable CAN driver
             ssh.sudo(f"ip link set {can_interface} type can bitrate 500000 loopback off") # verify the loopback is off before enabling it
             ssh.sudo(f"ip link set {can_interface} type can bitrate 500000 loopback on")
@@ -74,4 +74,3 @@ class TestCANBus:
             except TimeoutError:
                 warnings.warn(UserWarning(f"Could not restore CAN interface {can_interface} to {original_interface_state}"))
             ssh.sudo(f"ip link set {can_interface} type can bitrate 500000 loopback off")
-        

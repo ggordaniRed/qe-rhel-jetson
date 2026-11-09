@@ -21,6 +21,11 @@ from tests_resources.hardware_info import (
     collect as collect_hardware_info,
     compare_versions,
 )
+from tests_resources.test_dependencies import (
+    dependency_group_names,
+    install_host_rpms,
+    resolve_host_rpms,
+)
 import logging
 logger = logging.getLogger(__name__)
 
@@ -486,10 +491,43 @@ def beaker_repo_session(hardware_info_session):
     yield
 
 @pytest.fixture(scope="session", autouse=True)
-def nvidia_toolkit_session(hardware_info_session):
+def test_host_dependencies_session(request, hardware_info_session, beaker_repo_session):
+    """Install manifest-declared host RPMs before executing dependent tests."""
+    groups = set()
+    for item in request.session.items:
+        if not request.config.getoption("--run-extra") and "extra" in item.keywords:
+            continue
+        for marker in item.iter_markers("requires_test_rpms"):
+            groups.update(str(group) for group in marker.args)
+
+    if not groups:
+        yield
+        return
+
+    rhel_major = str(RHEL_VERSION).split(".", 1)[0]
+    hardware_spec = get_hardware_spec(HARDWARE_MODEL_NAME) or {}
+    required, optional = resolve_host_rpms(rhel_major, groups, hardware_spec)
+    logger.info(
+        "[Setup] Installing test RPM dependencies for groups %s: required=%s optional=%s",
+        ", ".join(sorted(groups)), required, optional,
+    )
+
+    with SSHConnection(
+        JETSON_HOST,
+        JETSON_USERNAME,
+        JETSON_PASSWORD or None,
+        JETSON_PORT,
+        JETSON_TIMEOUT,
+        key_filename=key_path,
+    ) as ssh:
+        install_host_rpms(ssh, required, optional)
+    yield
+
+@pytest.fixture(scope="session", autouse=True)
+def nvidia_toolkit_session(hardware_info_session, test_host_dependencies_session):
     """
     Ensure NVIDIA container toolkit is set up correctly on RC builds.
-    Depends on hardware_info_session to ensure IS_STAGE_BUILD is available.
+    Run manifest-declared test RPM setup first, then validate the image's toolkit.
     """
     if IS_STAGE_BUILD:
         logger.info("[Setup] Stage build detected — skipping NVIDIA toolkit auto-setup")
@@ -690,9 +728,21 @@ def pytest_addoption(parser):
     )
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--run-extra"):
-        return  # --run-extra given: run everything
-    skip_extra = pytest.mark.skip(reason="Extra test — use --run-extra to run")
+    required_groups = set()
+    run_extra = config.getoption("--run-extra")
     for item in items:
-        if "extra" in item.keywords:
-            item.add_marker(skip_extra)
+        if not run_extra and "extra" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="Extra test — use --run-extra to run"))
+            continue
+        for marker in item.iter_markers("requires_test_rpms"):
+            if not marker.args:
+                raise pytest.UsageError(
+                    f"{item.nodeid}: requires_test_rpms must name at least one manifest group"
+                )
+            required_groups.update(str(group) for group in marker.args)
+
+    unknown_groups = required_groups - dependency_group_names()
+    if unknown_groups:
+        raise pytest.UsageError(
+            "Unknown requires_test_rpms groups: " + ", ".join(sorted(unknown_groups))
+        )

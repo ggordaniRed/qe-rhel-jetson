@@ -65,6 +65,7 @@ class TestDisplay:
         result = ssh.run("ls -la /dev/dri/* || ls -la /dev/fb*", fail_on_rc=False)
         assert result.exit_status == 0, f"Failed to check display devices: {result.stderr}"
 
+    @pytest.mark.requires_test_rpms("legacy_display")
     def test_display_by_drm(self, ensure_pd_ignore_unused):
         """Test DRM sysfs entries and connector status via tegra_drm.
         tegra_drm is kernel auto-loaded on both targets. nvidia_drm is NOT

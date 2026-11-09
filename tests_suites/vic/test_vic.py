@@ -61,6 +61,8 @@ FLIP_METHODS = [
 class TestVIC:
     """Test VIC (Video Image Compositor) hardware engine on Jetson devices."""
 
+    pytestmark = pytest.mark.requires_test_rpms("gstreamer")
+
     @pytest.fixture(autouse=True)
     def _check_vic_support(self, ssh):
         """Skip all VIC tests if hardware spec says VIC is not supported."""
@@ -70,14 +72,6 @@ class TestVIC:
                 "VIC not supported on this hardware "
                 "(see jetson_hardware_specs.yaml)"
             )
-
-    @pytest.fixture(scope="class")
-    def gst_plugins_installed(self, ssh):
-        """Install GStreamer plugins needed by pipeline integration tests (h264parse, qtmux)."""
-        ssh.sudo(
-            "dnf install -y gstreamer1-plugins-bad-free gstreamer1-plugins-good",
-            fail_on_rc=False,
-        )
 
     # -------------------------------------------------------------------------
     # Hardware check
@@ -318,7 +312,7 @@ class TestVIC:
         assert verify.exit_status == 0, "VIC -> JPEG encode produced empty or missing file"
         ssh.sudo("rm -f /tmp/vic_test.jpg", fail_on_rc=False)
 
-    def test_vic_to_multi_jpeg_encode(self, ssh, gst_plugins_installed):
+    def test_vic_to_multi_jpeg_encode(self, ssh):
         """Test VIC producing multiple JPEG files via multifilesink."""
         ssh.sudo("rm -f /tmp/vic_multi_*.jpeg", fail_on_rc=False)
         result = ssh.sudo(
@@ -361,7 +355,7 @@ class TestVIC:
             f"CUDA -> VIC memory conversion pipeline failed: {result.stderr}"
         )
 
-    def test_vic_format_conversion_in_transcode(self, ssh, gst_plugins_installed):
+    def test_vic_format_conversion_in_transcode(self, ssh):
         """Test VIC as format converter in a transcode pipeline (encode -> decode -> VIC -> re-encode)."""
         spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)
         if not spec.get("video_enc", {}).get("supported"):
