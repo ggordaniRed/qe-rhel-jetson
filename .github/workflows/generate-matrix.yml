@@ -34,9 +34,6 @@ jobs:
     name: Fetch Testing Farm Logs & Generate Dashboard
     runs-on: ${{ vars.TESTING_FARM_DASHBOARD_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -85,12 +82,22 @@ jobs:
         with:
           path: docs/
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
       - name: Job summary
         run: |
           echo "## Testing Farm dashboard updated" >> "$GITHUB_STEP_SUMMARY"
           echo "The page is built from Testing Farm request artifacts and pytest logs." >> "$GITHUB_STEP_SUMMARY"
           echo "Requests can take hours to finish in the Beaker queue; scheduled refreshes pick up their artifacts after completion." >> "$GITHUB_STEP_SUMMARY"
+          echo "GitHub Pages deployment runs only from main; feature-branch runs keep the generated page as a workflow artifact." >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-pages:
+    name: Deploy dashboard to GitHub Pages
+    if: github.ref == 'refs/heads/main'
+    needs: fetch-and-generate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
