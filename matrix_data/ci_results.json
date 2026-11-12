@@ -1,124 +1,80 @@
 {
+  "source": "testing-farm",
   "runs": [
     {
-      "build_id": "2087515841993117696",
-      "pr": "44",
-      "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/44/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087515841993117696",
+      "source": "testing-farm",
+      "request_id": "ecf201e3-c4f5-4480-b945-1d747ed2d2fb",
+      "build_id": "ecf201e3-c4f5-4480-b945-1d747ed2d2fb",
+      "request_url": "https://api.dev.testing-farm.io/v0.1/requests/ecf201e3-c4f5-4480-b945-1d747ed2d2fb",
+      "run_url": "https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb",
       "platform": "AGX Orin",
-      "rhel_version": "9.8",
-      "concluded_at": "2026-08-12T13:01:22Z",
-      "conclusion": "success",
-      "results": {
-        "Bootc switch": "na",
-        "CAN bus": "verified",
-        "CSI camera": "verified",
-        "CUDA": "verified",
-        "Display": "verified",
-        "DLA": "verified",
-        "Ethernet": "verified",
-        "Kernel Modules": "verified",
-        "Multimedia": "verified",
-        "PCIs": "verified",
-        "PVA (VPI)": "verified",
-        "RTC": "verified",
-        "RC/Stage build": "verified",
-        "SPI/I2C": "verified",
-        "Nvidia CLI tools": "verified",
-        "USBs": "verified",
-        "VIC": "verified"
-      },
-      "failures": {},
-      "system_info": {
-        "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
-        "rhel_version": "9.8",
-        "kernel_version": "5.14.0-687.31.1.el9_8.aarch64",
-        "l4t_version": "36.5.0",
-        "jetpack_version": "6.2.2",
-        "jetpack_kmod": "6.2.2",
-        "firmware": "UEFI 36.5.2",
-        "secure_boot": "disabled"
-      }
-    },
-    {
-      "build_id": "2087474408540082176",
-      "pr": "42",
-      "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087474408540082176",
-      "platform": "AGX Orin",
-      "rhel_version": "9.8",
-      "concluded_at": "2026-08-12T10:11:13Z",
-      "conclusion": "success",
-      "results": {
-        "Bootc switch": "na",
-        "CAN bus": "verified",
-        "CSI camera": "verified",
-        "CUDA": "verified",
-        "Display": "verified",
-        "DLA": "verified",
-        "Ethernet": "verified",
-        "Kernel Modules": "verified",
-        "Multimedia": "verified",
-        "PCIs": "verified",
-        "PVA (VPI)": "verified",
-        "RTC": "verified",
-        "RC/Stage build": "verified",
-        "SPI/I2C": "verified",
-        "Nvidia CLI tools": "verified",
-        "USBs": "verified",
-        "VIC": "verified"
-      },
-      "failures": {},
-      "system_info": {
-        "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
-        "rhel_version": "9.8",
-        "kernel_version": "5.14.0-687.31.1.el9_8.aarch64",
-        "l4t_version": "36.5.0",
-        "jetpack_version": "6.2.2",
-        "jetpack_kmod": "6.2.2",
-        "firmware": "UEFI 36.5.2",
-        "secure_boot": "disabled"
-      }
-    },
-    {
-      "build_id": "2087460667559776256",
-      "pr": "42",
-      "run_url": "https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087460667559776256",
-      "platform": "AGX Orin",
-      "rhel_version": "9.8",
-      "concluded_at": "2026-08-12T09:22:36Z",
+      "rhel_version": "10.2",
+      "created_at": "",
+      "concluded_at": "2026-11-12",
+      "state": "complete",
       "conclusion": "failure",
+      "summary": "9 failed, 131 passed, 24 skipped",
+      "counts": {
+        "failed": 9,
+        "passed": 131,
+        "skipped": 24,
+        "errors": 0
+      },
       "results": {
-        "Bootc switch": "na",
-        "CAN bus": "verified",
-        "CSI camera": "verified",
-        "CUDA": "verified",
-        "Display": "verified",
-        "DLA": "failed",
-        "Ethernet": "verified",
-        "Kernel Modules": "verified",
-        "Multimedia": "verified",
-        "PCIs": "verified",
-        "PVA (VPI)": "verified",
-        "RTC": "verified",
-        "RC/Stage build": "verified",
-        "SPI/I2C": "verified",
-        "Nvidia CLI tools": "verified",
-        "USBs": "verified",
-        "VIC": "verified"
+        "CUDA": "failed",
+        "DeepStream": "failed",
+        "Display": "failed",
+        "Nvidia CLI tools": "failed"
       },
       "failures": {
-        "DLA": "self = <tests_suites.dla.test_basic_dla.TestDLA object at 0x7ff65d04f110>\nssh = <Connection host=10.26.2.85 user=root>\nl4t_tensorrt_image = 'l4t-tensorrt-tests:r36.4.0'\n\n    @pytest.mark.critical\n    def test_l4t_trtexec_dla(self, ssh, l4t_tensorrt_image):\n        \"\"\"Test TensorRT via trtexec with ResNet50 model on all DLA cores.\n        Iterates over all expected amount of DLA cores by jetson_hardware_specs.yaml. (Skips if DLA not supported)\"\"\"\n        spec = _conftest.get_hardware_spec(_conftest.HARDWARE_MODEL_NAME)\n        if not spec.get(\"dla\").get(\"supported\"):\n            pytest.skip(\"DLA not supported on this hardware\")\n        cores = spec.get(\"dla\").get(\"cores\")\n        for core in range(cores):\n            result = run_container(ssh, l4t_tensorrt_image,\n                f\"/usr/src/tensorrt/bin/trtexec --onnx=/usr/src/tensorrt/data/resnet50/ResNet50.onnx \"\n                f\"--useDLACore={core} --allowGPUFallback --fp16\")\n>           assert result.exit_status == 0, f\"TensorRT DLA core {core} failed: {result.stderr}\"\nE           AssertionError: TensorRT DLA core 0 failed: [08/12/2026-09:05:25] [W] [TRT] Layer 'node_of_OC2_DUMMY_0' (SHUFFLE): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:25] [W] [TRT] Layer 'gpu_0/pred_w_0' (CONSTANT): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:25] [W] [TRT] Layer 'gpu_0/pred_b_0' (CONSTANT): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:25] [W] [TRT] Layer 'ONNXTRT_Broadcast' (SHUFFLE): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:25] [W] [TRT] Layer 'ONNXTRT_flattenTensor' (SHUFFLE): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:25] [W] [TRT] Layer 'node_of_gpu_0/softmax_1' (SOFTMAX): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:25] [W] [TRT] Layer 'ONNXTRT_ShapeShuffle_271' (SHUFFLE): Unsupported on DLA. Switching this layer's device type to GPU.\nE             [08/12/2026-09:05:37] [E] Error[9]: Error Code: 9: Skipping tactic 0x0000000000000003 due to exception Assertion engine failed. \nE             [08/12/2026-09:05:37] [E] Error[9]: Error Code: 9: Skipping tactic 0x0000000000000003 due to exception Assertion engine failed. \nE             [08/12/2026-09:05:38] [E] Error[9]: Error Code: 9: Skipping tactic 0x0000000000000003 due to exception Assertion engine failed. \nE             [08/12/2026-09:05:38] [E] Error[9]: Error Code: 9: Skipping tactic 0x0000000000000003 due to exception Assertion engine failed. \nE             [08/12/2026-09:05:38] [E] Error[9]: Error Code: 9: Skipping tactic 0x0000000000000003 due to exception Assertion engine failed. \nE             [08/12/2026-09:05:39] [E] Error[2]: [wtsEngineUtils.cpp::buildWtsEngine::122] Error Code 2: Internal Error (Assertion engine failed. )\nE             [08/"
+        "CUDA": "tests_suites/cuda/test_basic_cuda.py::TestCUDA::test_l4t_cuda_samples\nPodman startup output included banner lines (`==========`, `== CUDA ==`, `CUDA Version 13.2.0`); the test treated these as sample paths and attempted to execute ./==========, ./==, and ./CUDA (exit 127).",
+        "DeepStream": "Five tests failed: test_deepstream_version, test_deepstream_gst_plugins, test_nvvideoconvert_pipeline, test_nvstreammux_pipeline, and test_deepstream_sample_inference. The log reports missing libnvdla_compiler.so and libnvdsbufferpool.so.1.0.0 failing to load with undefined symbol g_once_init_enter_pointer; required plugins and pipeline elements did not register.",
+        "Display": "tests_suites/display/test_basic_display.py::TestDisplay::test_default_target and test_x11_display failed. Logs show graphical.target without GDM or Xorg.",
+        "Nvidia CLI tools": "tests_suites/tools/test_basic_tools.py::TestTools::test_nvfancontrol_available failed: nvfancontrol -q exited 253 with empty stderr."
+      },
+      "test_failures": {
+        "tests_suites/cuda/test_basic_cuda.py::TestCUDA::test_l4t_cuda_samples": {
+          "category": "CUDA",
+          "message": "Podman startup output included banner lines (`==========`, `== CUDA ==`, `CUDA Version 13.2.0`); the test treated these as sample paths and attempted to execute ./==========, ./==, and ./CUDA (exit 127)."
+        },
+        "tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_deepstream_version": {
+          "category": "DeepStream",
+          "message": "The log reports a missing libnvdla_compiler.so while probing the installed DeepStream version."
+        },
+        "tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_deepstream_gst_plugins": {
+          "category": "DeepStream",
+          "message": "libnvdsbufferpool.so.1.0.0 failed to load with undefined symbol g_once_init_enter_pointer, so DeepStream plugins did not register."
+        },
+        "tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_nvvideoconvert_pipeline": {
+          "category": "DeepStream",
+          "message": "The nvvideoconvert element was unavailable because the DeepStream plugin loader failed."
+        },
+        "tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_nvstreammux_pipeline": {
+          "category": "DeepStream",
+          "message": "The nvstreammux element was unavailable because the DeepStream plugin loader failed."
+        },
+        "tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_deepstream_sample_inference": {
+          "category": "DeepStream",
+          "message": "The sample inference pipeline could not load its required DeepStream and H.264 decoder plugins."
+        },
+        "tests_suites/display/test_basic_display.py::TestDisplay::test_default_target": {
+          "category": "Display",
+          "message": "The log shows graphical.target without GDM or Xorg."
+        },
+        "tests_suites/display/test_basic_display.py::TestDisplay::test_x11_display": {
+          "category": "Display",
+          "message": "The X11 test failed because Xorg was not running."
+        },
+        "tests_suites/tools/test_basic_tools.py::TestTools::test_nvfancontrol_available": {
+          "category": "Nvidia CLI tools",
+          "message": "nvfancontrol -q exited 253 and wrote no stderr output."
+        }
       },
       "system_info": {
-        "hardware_model": "NVIDIA Jetson AGX Orin Developer Kit",
-        "rhel_version": "9.8",
-        "kernel_version": "5.14.0-687.31.1.el9_8.aarch64",
-        "l4t_version": "36.5.0",
-        "jetpack_version": "6.2.2",
-        "jetpack_kmod": "6.2.2",
-        "firmware": "UEFI 36.5.2",
-        "secure_boot": "disabled"
+        "beaker_host": "nvidia-jetson-agx-orin-07.khw.eng.bos2.dc.redhat.com",
+        "firmware": "39",
+        "bootc_image": "quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel-102-bootc:7.2.1_6.12.0-211.72.1_110226170017"
       }
     }
-  ],
-  "fetched_at": "2026-08-13T09:28:43Z"
+  ]
 }

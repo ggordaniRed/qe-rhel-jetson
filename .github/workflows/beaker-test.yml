@@ -1,456 +1,56 @@
-# GitHub Actions Workflow: Beaker Jetson Testing
-#
-# This workflow securely:
-# 1. Authenticates to Beaker (Kerberos or Username/Password)
-# 2. Reserves a Jetson system via Beaker
-# 3. Waits for the machine to be ready (SSH accessible)
-# 4. Installs bootc image via Ansible
-# 5. Runs the test suite over SSH
-# 6. Cleans up sensitive data
-#
-# Security Features:
-# - All credentials stored in GitHub Secrets (never in code)
-# - Credentials masked in logs
-# - Sensitive files cleaned up after use
-# - SSH keys with proper permissions
-# - No hardcoded values for auth
-#
-# Required Secrets (for password auth - recommended for CI):
-#   BEAKER_USERNAME: Beaker username
-#   BEAKER_PASSWORD: Beaker password
-#   GITLAB_REGISTRY_USER: GitLab registry username
-#   GITLAB_REGISTRY_TOKEN: GitLab registry token (glpat-xxx)
-#   SSH_PRIVATE_KEY: SSH private key for connecting to Jetson
-#
-# Alternative Secrets (for Kerberos auth):
-#   BEAKER_KEYTAB_BASE64: Base64-encoded Kerberos keytab
-#   BEAKER_PRINCIPAL: Kerberos principal (e.g., username@IPA.REDHAT.COM)
-
-name: Beaker Jetson Testing
+name: Testing Farm Jetson E2E
 
 on:
-  # Manual trigger with inputs
+  # Beaker hardware is scarce; submit only when explicitly requested.
   workflow_dispatch:
     inputs:
-      target:
-        description: 'Target Jetson FQDN'
+      test_ref:
+        description: GitLab ref containing /testing-farm/beaker-e2e
         required: true
-        default: 'nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com'
+        default: beaker-bootc-e2e-20261109
         type: string
-      distro:
-        description: 'RHEL distro to provision'
+      firmware:
+        description: Jetson BIOS firmware branch
         required: true
-        default: 'RHEL-9.7.0-updates-20260126.2'
-        type: string
-      reservation_hours:
-        description: 'Reservation duration in hours'
-        required: true
-        default: '24'
+        default: '39'
         type: string
       bootc_image:
-        description: 'Bootc image to deploy'
+        description: Tagged bootc image to install
         required: true
-        default: 'registry.gitlab.com/redhat/rhel/sst/orin-sidecar/nvidia-jetson-sidecar/rhel-9.7:523ef1e4'
+        default: quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel-102-bootc:7.2.1_6.12.0-211.72.1_110226170017
         type: string
-      auth_method:
-        description: 'Authentication method'
+      reservation_hours:
+        description: Beaker reservation duration in hours
         required: true
-        default: 'password'
-        type: choice
-        options:
-          - password
-          - krbv
-      skip_bootc_install:
-        description: 'Skip bootc installation (for testing on already-deployed systems)'
-        required: false
-        default: false
-        type: boolean
-      test_markers:
-        description: 'Pytest markers to filter tests (e.g., "not slow")'
-        required: false
-        default: ''
+        default: '6'
         type: string
 
-  # Scheduled run (optional - uncomment to enable)
-  # schedule:
-  #   - cron: '0 3 * * *'  # Daily at 3am UTC
-
-env:
-  BEAKER_HUB_URL: https://beaker.engineering.redhat.com
-  BEAKER_KRB_REALM: IPA.REDHAT.COM
-  BEAKER_SSL_VERIFY: 'false'
-  PYTHON_VERSION: '3.11'
+permissions:
+  contents: read
 
 jobs:
-  reserve-and-test:
-    name: Reserve Beaker Machine & Run Tests
+  submit-testing-farm:
+    name: Submit Beaker E2E to Testing Farm
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hour timeout for entire job
-
+    timeout-minutes: 10
     steps:
-      #========================================================================
-      # Setup
-      #========================================================================
-      - name: Checkout repository
+      - name: Checkout workflow repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install system dependencies
-        run: |
-          # Install Kerberos dev libraries (required for gssapi Python package)
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libkrb5-dev krb5-user
-
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      #========================================================================
-      # Authentication Setup (Secure)
-      #========================================================================
-      - name: Setup SSH key securely
-        run: |
-          # Create SSH directory with strict permissions
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          
-          # Write SSH key securely (masked in logs)
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          
-          # Disable strict host key checking for Beaker machines
-          cat >> ~/.ssh/config << 'EOF'
-          Host *.redhat.com
-              StrictHostKeyChecking no
-              UserKnownHostsFile /dev/null
-              LogLevel ERROR
-              IdentityFile ~/.ssh/id_rsa
-          EOF
-          chmod 600 ~/.ssh/config
-          
-          echo "✅ SSH key configured"
-
-      - name: Setup Kerberos authentication
-        if: ${{ github.event.inputs.auth_method == 'krbv' }}
-        run: |
-          # Configure Kerberos (packages already installed in system dependencies step)
-          sudo tee /etc/krb5.conf > /dev/null << EOF
-          [libdefaults]
-              default_realm = ${{ env.BEAKER_KRB_REALM }}
-              dns_lookup_realm = false
-              dns_lookup_kdc = true
-              rdns = false
-              ticket_lifetime = 24h
-              forwardable = true
-          
-          [realms]
-              ${{ env.BEAKER_KRB_REALM }} = {
-                  kdc = kerberos.${{ env.BEAKER_KRB_REALM }}
-                  admin_server = kerberos.${{ env.BEAKER_KRB_REALM }}
-              }
-          EOF
-          
-          # Decode keytab from secret (masked)
-          echo "${{ secrets.BEAKER_KEYTAB_BASE64 }}" | base64 -d > /tmp/beaker.keytab
-          chmod 600 /tmp/beaker.keytab
-          
-          # Initialize Kerberos ticket
-          kinit -kt /tmp/beaker.keytab "${{ secrets.BEAKER_PRINCIPAL }}"
-          
-          # Verify ticket
-          klist
-          echo "✅ Kerberos authentication configured"
-
-      - name: Set authentication environment
-        id: auth
-        run: |
-          AUTH_METHOD="${{ github.event.inputs.auth_method || 'password' }}"
-          echo "auth_method=$AUTH_METHOD" >> $GITHUB_OUTPUT
-          
-          if [ "$AUTH_METHOD" == "password" ]; then
-            # Validate password auth secrets exist (without exposing them)
-            if [ -z "${{ secrets.BEAKER_USERNAME }}" ] || [ -z "${{ secrets.BEAKER_PASSWORD }}" ]; then
-              echo "❌ Error: BEAKER_USERNAME and BEAKER_PASSWORD secrets are required for password auth"
-              exit 1
-            fi
-            echo "✅ Password authentication will be used"
-          else
-            if [ -z "${{ secrets.BEAKER_KEYTAB_BASE64 }}" ] || [ -z "${{ secrets.BEAKER_PRINCIPAL }}" ]; then
-              echo "❌ Error: BEAKER_KEYTAB_BASE64 and BEAKER_PRINCIPAL secrets are required for Kerberos auth"
-              exit 1
-            fi
-            echo "✅ Kerberos authentication will be used"
-          fi
-
-      #========================================================================
-      # Reserve Beaker Machine
-      #========================================================================
-      - name: Reserve Jetson via Beaker
-        id: reserve
-        timeout-minutes: 20
+      - name: Submit Testing Farm request
+        id: submit
         env:
-          BEAKER_HUB_URL: ${{ env.BEAKER_HUB_URL }}
-          BEAKER_SSL_VERIFY: ${{ env.BEAKER_SSL_VERIFY }}
-          BEAKER_AUTH_METHOD: ${{ steps.auth.outputs.auth_method }}
-          # Password auth (masked in logs)
+          TESTING_FARM_API_TOKEN: ${{ secrets.TESTING_FARM_API_TOKEN }}
+          TESTING_FARM_REPO_URL: https://gitlab.cee.redhat.com/ggordani/qe-rhel-jetson.git
+          TF_GIT_REF: ${{ inputs.test_ref }}
+          JETSON_FIRMWARE: ${{ inputs.firmware }}
+          BOOTC_IMAGE: ${{ inputs.bootc_image }}
+          RESERVATION_HOURS: ${{ inputs.reservation_hours }}
           BEAKER_USERNAME: ${{ secrets.BEAKER_USERNAME }}
           BEAKER_PASSWORD: ${{ secrets.BEAKER_PASSWORD }}
-          # Kerberos auth
-          BEAKER_KRB_REALM: ${{ env.BEAKER_KRB_REALM }}
-        run: |
-          cd beaker
-          
-          TARGET="${{ github.event.inputs.target || 'nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com' }}"
-          DISTRO="${{ github.event.inputs.distro || 'RHEL-9.7.0-updates-20260126.2' }}"
-          HOURS="${{ github.event.inputs.reservation_hours || '24' }}"
-          
-          echo "🔗 Reserving Jetson machine..."
-          echo "   Target: $TARGET"
-          echo "   Distro: $DISTRO"
-          echo "   Hours:  $HOURS"
-          
-          # Run reserve script
-          python scripts/reserve_jetson.py \
-            --target "$TARGET" \
-            --distro "$DISTRO" \
-            --hours "$HOURS" \
-            --ssh-timeout 60
-          
-          echo "target=$TARGET" >> $GITHUB_OUTPUT
-
-      - name: Verify SSH connectivity
-        timeout-minutes: 10
-        run: |
-          TARGET="${{ steps.reserve.outputs.target }}"
-          echo "🔌 Verifying SSH connection to $TARGET..."
-          
-          # Wait for SSH to be ready (with retries)
-          MAX_ATTEMPTS=10
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            if ssh -o ConnectTimeout=30 -o BatchMode=yes root@$TARGET "echo 'SSH connection successful'"; then
-              echo "✅ SSH connection established"
-              exit 0
-            fi
-            echo "   Attempt $i/$MAX_ATTEMPTS failed, waiting 30s..."
-            sleep 30
-          done
-          
-          echo "❌ Failed to establish SSH connection after $MAX_ATTEMPTS attempts"
-          exit 1
-
-      #========================================================================
-      # Install Bootc via Ansible
-      #========================================================================
-      - name: Create Ansible secrets securely
-        if: ${{ !github.event.inputs.skip_bootc_install }}
-        run: |
-          # Create secrets file with masked credentials
-          cat > beaker/ansible/vars/secrets.yml << EOF
-          registry_user: "${{ secrets.GITLAB_REGISTRY_USER }}"
-          registry_pass: "${{ secrets.GITLAB_REGISTRY_TOKEN }}"
-          EOF
-          
-          # Secure the file
-          chmod 600 beaker/ansible/vars/secrets.yml
-          echo "✅ Ansible secrets configured"
-
-      - name: Install bootc via Ansible
-        if: ${{ !github.event.inputs.skip_bootc_install }}
-        timeout-minutes: 45
-        run: |
-          cd beaker/ansible
-          
-          TARGET="${{ steps.reserve.outputs.target }}"
-          BOOTC_IMAGE="${{ github.event.inputs.bootc_image || 'registry.gitlab.com/redhat/rhel/sst/orin-sidecar/nvidia-jetson-sidecar/rhel-9.7:523ef1e4' }}"
-          
-          echo "📦 Installing bootc on $TARGET"
-          echo "   Image: $BOOTC_IMAGE"
-          
-          ansible-playbook -i inventory.yml install_bootc.yml \
-            -e "target_host=$TARGET" \
-            -e "bootc_image=$BOOTC_IMAGE" \
-            -e "auto_reboot=true" \
-            -e "setup_boot_restore=true" \
-            -v
-
-      - name: Wait for reboot after bootc install
-        if: ${{ !github.event.inputs.skip_bootc_install }}
-        timeout-minutes: 15
-        run: |
-          TARGET="${{ steps.reserve.outputs.target }}"
-          echo "⏳ Waiting for system to come back up after bootc install..."
-          
-          # Wait for system to go down
-          sleep 60
-          
-          # Wait for SSH to be ready (with retries)
-          MAX_ATTEMPTS=20
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            if ssh -o ConnectTimeout=30 -o BatchMode=yes root@$TARGET "echo 'SSH connection successful after reboot'"; then
-              echo "✅ System is back up"
-              
-              # Verify bootc is running
-              echo "📋 System info:"
-              ssh root@$TARGET "bootc status" 2>/dev/null || echo "   bootc status not available"
-              ssh root@$TARGET "uname -a"
-              exit 0
-            fi
-            echo "   Attempt $i/$MAX_ATTEMPTS failed, waiting 30s..."
-            sleep 30
-          done
-          
-          echo "❌ Failed to reconnect after reboot"
-          exit 1
-
-      #========================================================================
-      # Run Tests
-      #========================================================================
-      - name: Run Jetson Tests
-        id: tests
-        timeout-minutes: 60
-        env:
-          JETSON_HOST: ${{ steps.reserve.outputs.target }}
-          JETSON_USERNAME: root
-          JETSON_KEY_PATH: ~/.ssh/id_rsa
-          JETSON_TIMEOUT: '120'
-        run: |
-          MARKERS="${{ github.event.inputs.test_markers || '' }}"
-          
-          echo "🧪 Running tests on $JETSON_HOST"
-          
-          # Build pytest command
-          PYTEST_CMD="pytest tests_suites/ -v --tb=short --timeout=600"
-
-          if [ -n "$MARKERS" ]; then
-            PYTEST_CMD="$PYTEST_CMD -m '$MARKERS'"
-          fi
-
-          # Add reports
-          PYTEST_CMD="$PYTEST_CMD --html=test-report.html --self-contained-html"
-          PYTEST_CMD="$PYTEST_CMD --junit-xml=junit.xml"
-          
-          echo "   Command: $PYTEST_CMD"
-          eval $PYTEST_CMD
-        continue-on-error: true
-
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-report
-          path: test-report.html
-          retention-days: 30
-
-      - name: Upload JUnit results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: junit-results
-          path: junit.xml
-          retention-days: 90
-          if-no-files-found: ignore
-
-      - name: Upload test logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-logs
-          path: |
-            *.log
-            tests_suites/**/*.log
-          retention-days: 30
-          if-no-files-found: ignore
-
-      #========================================================================
-      # Cleanup & Summary
-      #========================================================================
-      - name: Collect debug info on failure
-        if: failure()
-        run: |
-          TARGET="${{ steps.reserve.outputs.target }}"
-          
-          echo "🔍 Collecting debug info from $TARGET"
-          
-          ssh -o ConnectTimeout=30 root@$TARGET "
-            echo '=== System Info ==='
-            uname -a
-            cat /etc/os-release 2>/dev/null || true
-            
-            echo '=== Boot Status ==='
-            bootc status 2>/dev/null || echo 'bootc not available'
-            
-            echo '=== Kernel Logs (last 50 lines) ==='
-            dmesg 2>/dev/null | tail -50 || true
-            
-            echo '=== Journal (last 50 lines) ==='
-            journalctl -n 50 --no-pager 2>/dev/null || true
-            
-            echo '=== Memory ==='
-            free -h 2>/dev/null || true
-            
-            echo '=== Disk ==='
-            df -h 2>/dev/null || true
-          " > debug-info.txt 2>&1 || echo "Failed to collect debug info" > debug-info.txt
-
-      - name: Upload debug info
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: debug-info
-          path: debug-info.txt
-          retention-days: 7
-
-      - name: Secure cleanup
-        if: always()
-        run: |
-          echo "🧹 Cleaning up sensitive data..."
-          
-          # Remove Kerberos credentials
-          kdestroy 2>/dev/null || true
-          rm -f /tmp/beaker.keytab
-          
-          # Remove SSH key
-          rm -f ~/.ssh/id_rsa
-          
-          # Remove Ansible secrets
-          rm -f beaker/ansible/vars/secrets.yml
-          
-          echo "✅ Cleanup complete"
-
-      - name: Check test result
-        if: steps.tests.outcome == 'failure'
-        run: |
-          echo "❌ Tests failed! Check the test report for details."
-          exit 1
-
-      - name: Job Summary
-        if: always()
-        run: |
-          TARGET="${{ steps.reserve.outputs.target }}"
-          AUTH_METHOD="${{ steps.auth.outputs.auth_method }}"
-          
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 🧪 Beaker Test Run Summary
-          
-          | Property | Value |
-          |----------|-------|
-          | **Target** | \`$TARGET\` |
-          | **Distro** | \`${{ github.event.inputs.distro || 'RHEL-9.7.0-updates-20260126.2' }}\` |
-          | **Bootc Image** | \`${{ github.event.inputs.bootc_image || 'default' }}\` |
-          | **Auth Method** | \`$AUTH_METHOD\` |
-          | **Test Result** | ${{ steps.tests.outcome == 'success' && '✅ Passed' || '❌ Failed' }} |
-          
-          ### 📁 Artifacts
-          - Test Report: Available in workflow artifacts
-          
-          ### ℹ️ Notes
-          - Machine will auto-return to Beaker when reservation expires
-          - Boot order restoration timer is configured to run before reservation ends
-          - All sensitive credentials were cleaned up after execution
-          EOF
+          JETSON_SSH_KEY: ${{ secrets.JETSON_SSH_KEY }}
+          GITLAB_USERNAME: ${{ secrets.GITLAB_USERNAME }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASS: ${{ secrets.REGISTRY_PASS }}
+        run: python3 scripts/submit_testing_farm.py

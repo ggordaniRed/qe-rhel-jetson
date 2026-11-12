@@ -95,12 +95,6 @@ VERSION_META = {
     "10.2": {"phase": "DP", "phase_label": "Developer Preview",  "phase_css": "dp"},
 }
 
-# Prow job history base URL — append job name suffix
-PROW_HISTORY_BASE = (
-    "https://prow.ci.openshift.org/job-history/gs/test-platform-results"
-    "/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
-)
-
 # ── HTML parser ───────────────────────────────────────────────────────────────
 
 class SheetParser(HTMLParser):
@@ -264,6 +258,11 @@ def load_ci_results(ci_json_path, default_version="9.7"):
             "conclusion":  run.get("conclusion", ""),
             "concluded_at":run.get("concluded_at", ""),
             "results":     results,
+            "failures":    run.get("failures", {}),
+            "test_failures": run.get("test_failures", {}),
+            "counts":      run.get("counts", {}),
+            "summary":     run.get("summary", ""),
+            "request_id":  run.get("request_id", run.get("build_id", "")),
         })
         if key not in out:
             out[key] = {
@@ -274,6 +273,11 @@ def load_ci_results(ci_json_path, default_version="9.7"):
                 "concluded_at":run.get("concluded_at", ""),
                 "conclusion":  run.get("conclusion", ""),
                 "pr":          run.get("pr", ""),
+                "request_id":  run.get("request_id", run.get("build_id", "")),
+                "request_url": run.get("request_url", ""),
+                "summary":     run.get("summary", ""),
+                "counts":      run.get("counts", {}),
+                "test_failures": run.get("test_failures", {}),
             }
     for key in out:
         out[key]["recent_runs"] = recent.get(key, [])[:5]
@@ -306,6 +310,11 @@ def build_data_from_ci(version, ci_map):
             "concluded_at":ci_map.get((version, p), {}).get("concluded_at", ""),
             "conclusion":  ci_map.get((version, p), {}).get("conclusion", ""),
             "pr":          ci_map.get((version, p), {}).get("pr", ""),
+            "request_id":  ci_map.get((version, p), {}).get("request_id", ""),
+            "request_url": ci_map.get((version, p), {}).get("request_url", ""),
+            "summary":     ci_map.get((version, p), {}).get("summary", ""),
+            "counts":      ci_map.get((version, p), {}).get("counts", {}),
+            "test_failures": ci_map.get((version, p), {}).get("test_failures", {}),
         }
         for p in platforms
     }
@@ -392,86 +401,126 @@ def status_cell(status, note=""):
     tooltip = label + (f" — {note}" if note else "")
     return f'<span class="dot dot-{cls}" title="{tooltip}">{icon}</span>'
 
-def prow_link(text, url):
-    return f'<a class="prow-link" href="{url}" target="_blank" rel="noopener">{text}</a>'
+def source_link(text, url):
+    if not url or not str(url).startswith("https://"):
+        return _html.escape(str(text))
+    return (f'<a class="source-link" href="{_html.escape(str(url), quote=True)}" '
+            f'target="_blank" rel="noopener">{_html.escape(str(text))}</a>')
 
 def _run_col_header(r):
-    date = r["concluded_at"][:10] if r.get("concluded_at") else "—"
-    pr_part = (
-        f'<a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/{r["pr"]}" '
-        f'target="_blank" class="prow-link run-col-pr">PR#{r["pr"]}</a>'
-    ) if r.get("pr") else ""
-    success = r.get("conclusion") == "success"
-    icon_cls = "run-success" if success else "run-failure"
-    icon = "✓" if success else "✗"
+    date = r.get("concluded_at", "")[:10] if r.get("concluded_at") else "—"
+    request_id = str(r.get("request_id") or r.get("build_id", ""))
+    conclusion = r.get("conclusion", "")
+    if conclusion == "success":
+        icon_cls, icon = "run-success", "✓"
+    elif conclusion == "failure":
+        icon_cls, icon = "run-failure", "✗"
+    else:
+        icon_cls, icon = "run-pending", "…"
+    run_url = r.get("run_url", "")
+    label = request_id[-8:] if request_id else "—"
     build_link = (
-        f'<a class="prow-link run-col-build" href="{r["run_url"]}" target="_blank" rel="noopener">'
-        f'{r["build_id"][-8:]}</a>'
-    ) if r.get("run_url") else (r.get("build_id", "")[-8:] or "—")
+        f'<a class="source-link run-col-build" href="{_html.escape(str(run_url), quote=True)}" '
+        f'target="_blank" rel="noopener">{_html.escape(label)}</a>'
+        if run_url and str(run_url).startswith("https://") else _html.escape(label)
+    )
+    counts = r.get("counts", {}) or {}
+    count_label = " · ".join(
+        f"{counts[key]} {key}" for key in ("failed", "passed", "skipped") if counts.get(key)
+    )
+    summary = r.get("summary") or count_label
     return (
-        f'<th class="run-col-th">'
+        f'<th class="run-col-th" title="{_html.escape(str(summary), quote=True)}">'
         f'<span class="{icon_cls} run-col-icon">{icon}</span>'
-        f'<span class="run-col-date">{date}</span>'
-        f'{pr_part}'
+        f'<span class="run-col-date">{_html.escape(date)}</span>'
         f'{build_link}'
+        f'<span class="run-col-summary">{_html.escape(str(summary))}</span>'
         f'</th>'
     )
 
 
-def render_multi_run_table(tests, recent_runs):
-    """Matrix table with one column per run — each cell shows that run's test result."""
-    ncols = len(recent_runs)
-    col_headers = "".join(_run_col_header(r) for r in recent_runs)
+def _failure_details_html(run, test_name):
+    details = []
+    for test_id, failure in (run.get("test_failures", {}) or {}).items():
+        if failure.get("category") == test_name:
+            message = failure.get("message", "")
+            details.append(f"{test_id}\n{message}".strip())
+    if not details and (run.get("failures", {}) or {}).get(test_name):
+        details.append(str(run["failures"][test_name]))
+    if not details:
+        return ""
+    content = "\n\n".join(details)[:8000]
+    return (
+        '<details class="fail-details">'
+        '<summary class="fail-summary">Failure details</summary>'
+        f'<pre class="fail-log">{_html.escape(content)}</pre>'
+        '</details>'
+    )
 
+
+def render_multi_run_table(tests, recent_runs):
+    """Render one result column per Testing Farm request, with captured failure output."""
+    ncols = len(recent_runs)
+    col_headers = "".join(_run_col_header(run) for run in recent_runs)
     tbody = ""
     last_group = None
-    for t in tests:
-        name = t["name"]
+    for test in tests:
+        name = test["name"]
         group = TEST_GROUPS.get(name, "Other")
-        note = t.get("note", "")
+        note = test.get("note", "")
         if group != last_group:
             last_group = group
             tbody += (
-                f'<tr class="group-row">'
-                f'<td class="group-label" colspan="{1 + ncols}">{group}</td>'
-                f'</tr>\n'
+                f'<tr class="group-row"><td class="group-label" colspan="{1 + ncols}">'
+                f'{_html.escape(group)}</td></tr>\n'
             )
-        any_failed = any(r.get("results", {}).get(name) == "failed" for r in recent_runs)
-        row_class = "test-row-failed" if any_failed else ""
+        any_failed = any((run.get("results", {}) or {}).get(name) == "failed" for run in recent_runs)
         cells = ""
-        for r in recent_runs:
-            s = r.get("results", {}).get(name, "na")
-            cell_inner = status_cell(s, note)
-            if s == "failed" and r.get("run_url"):
+        for run in recent_runs:
+            status = (run.get("results", {}) or {}).get(name, "na")
+            cell_inner = status_cell(status, note)
+            run_url = run.get("run_url", "")
+            if status == "failed" and run_url and str(run_url).startswith("https://"):
                 cell_inner = (
-                    f'<a href="{r["run_url"]}" target="_blank" rel="noopener" class="fail-link">'
-                    f'{cell_inner}</a>'
+                    f'<a href="{_html.escape(str(run_url), quote=True)}" target="_blank" '
+                    f'rel="noopener" class="fail-link">{cell_inner}</a>'
                 )
+            if status == "failed":
+                cell_inner += _failure_details_html(run, name)
             cells += f'<td class="result-cell">{cell_inner}</td>'
         tbody += (
-            f'<tr class="test-row {row_class}">'
-            f'<td class="test-name">{name}</td>'
-            f'{cells}'
-            f'</tr>\n'
+            f'<tr class="test-row {"test-row-failed" if any_failed else ""}">'
+            f'<td class="test-name">{_html.escape(name)}</td>{cells}</tr>\n'
         )
+    latest_url = recent_runs[0].get("run_url", "") if recent_runs else ""
+    footer = (
+        f'<div class="runs-footer">{source_link("Open latest Testing Farm results →", latest_url)}</div>'
+        if latest_url else ""
+    )
     return f"""
     <div class="matrix-wrap">
       <table class="matrix">
-        <thead><tr>
-          <th class="test-col-th">Test</th>
-          {col_headers}
-        </tr></thead>
-        <tbody>
-          {tbody}
-        </tbody>
+        <thead><tr><th class="test-col-th">Test</th>{col_headers}</tr></thead>
+        <tbody>{tbody}</tbody>
       </table>
-      <div class="runs-footer">
-        <a href="{PROW_HISTORY_BASE}" target="_blank" rel="noopener">View all runs on Prow &rarr;</a>
-      </div>
+      {footer}
     </div>"""
 
 
-def _progress_html(tests, plat_idx):
+def _progress_html(tests, plat_idx, counts=None):
+    if counts:
+        passed = int(counts.get("passed", 0))
+        failed = int(counts.get("failed", 0))
+        skipped = int(counts.get("skipped", 0))
+        errors = int(counts.get("errors", 0))
+        total = passed + failed + skipped + errors
+        summary = f"{passed} passed · {failed} failed · {skipped} skipped"
+        if errors:
+            summary += f" · {errors} errors"
+        return (
+            f'<div class="prog-row"><span class="prog-label">{_html.escape(summary)}</span></div>'
+        ), passed, total
+
     total = v = 0
     for t in tests:
         s = t["results"][plat_idx] if plat_idx < len(t["results"]) else "na"
@@ -494,22 +543,24 @@ def _chips_from_si(si):
     chips = []
     hw = si.get("hardware_model", "")
     if hw:
-        chips.append(f'<span class="chip chip-hw">{hw}</span>')
+        chips.append(f'<span class="chip chip-hw">{_html.escape(str(hw))}</span>')
     for label, key in [
         ("Kernel", "kernel_version"),
         ("L4T",    "l4t_version"),
         ("JetPack","jetpack_version"),
         ("Firmware","firmware"),
-        ("Secure Boot","secure_boot"),
+        ("Secure Boot", "secure_boot"),
+        ("Beaker", "beaker_host"),
+        ("Bootc image", "bootc_image"),
     ]:
         val = si.get(key, "")
         if val:
-            chips.append(f'<span class="chip"><span class="chip-label">{label}</span> {val}</span>')
+            chips.append(f'<span class="chip"><span class="chip-label">{_html.escape(label)}</span> {_html.escape(str(val))}</span>')
     return chips
 
 
 def _failure_url(test_name, recent_runs):
-    """Return the Prow URL of the most recent run where test_name failed."""
+    """Return the artifact URL of the most recent run where test_name failed."""
     for r in recent_runs:
         if r.get("results", {}).get(test_name) == "failed":
             return r.get("run_url", "")
@@ -528,7 +579,8 @@ def _platform_block(platform, plat_idx, tests, per_plat, open_attr):
     chips = _chips_from_si(si)
     chips_html = "\n        ".join(chips)
 
-    prog_html, v, total = _progress_html(tests, plat_idx)
+    latest_counts = recent_runs[0].get("counts") if recent_runs else None
+    prog_html, v, total = _progress_html(tests, plat_idx, latest_counts)
 
     pct = round(v / total * 100) if total else 0
     mini_cls = "ok" if pct == 100 else ("warn" if pct >= 50 else "fail")
@@ -635,20 +687,40 @@ def render_section(version, data, generated_at):
             if p.strip() and not re.match(r"RHEL\s+\d", p.strip(), re.I)
         )
 
-    # Overall progress across all platforms
+    # Prefer the parsed pytest case counts when the run log provides them.
+    overall_counts = {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
+    has_case_counts = False
     total_v = total_t = 0
-    for plat_idx in range(len(platforms)):
-        _, v, t = _progress_html(tests, plat_idx)
+    for plat_idx, platform in enumerate(platforms):
+        recent_runs = per_platform.get(platform, {}).get("recent_runs", [])
+        counts = recent_runs[0].get("counts") if recent_runs else None
+        _, v, t = _progress_html(tests, plat_idx, counts)
         total_v += v
         total_t += t
+        if counts:
+            has_case_counts = True
+            for key in overall_counts:
+                overall_counts[key] += int(counts.get(key, 0))
     overall_pct = round(total_v / total_t * 100) if total_t else 0
-    overall_prog = (
-        f'<div class="prog-row">'
-        f'<span class="prog-label">{total_v} / {total_t} verified</span>'
-        f'<div class="prog-bar"><div class="prog-fill" style="width:{overall_pct}%"></div></div>'
-        f'<span class="prog-pct">{overall_pct}%</span>'
-        f'</div>'
-    )
+    if has_case_counts:
+        count_summary = (
+            f"{overall_counts['passed']} passed · {overall_counts['failed']} failed · "
+            f"{overall_counts['skipped']} skipped"
+        )
+        if overall_counts["errors"]:
+            count_summary += f" · {overall_counts['errors']} errors"
+        overall_prog = (
+            f'<div class="prog-row"><span class="prog-label">'
+            f'{_html.escape(count_summary)}</span></div>'
+        )
+    else:
+        overall_prog = (
+            f'<div class="prog-row">'
+            f'<span class="prog-label">{total_v} / {total_t} verified</span>'
+            f'<div class="prog-bar"><div class="prog-fill" style="width:{overall_pct}%"></div></div>'
+            f'<span class="prog-pct">{overall_pct}%</span>'
+            f'</div>'
+        )
 
     # Per-platform collapsible blocks (first one open by default)
     if per_platform:
@@ -689,6 +761,23 @@ def render_section(version, data, generated_at):
     </div>
     {render_recent_runs(data.get("recent_runs", []))}"""
 
+    latest_runs = [
+        run for platform_data in per_platform.values()
+        for run in platform_data.get("recent_runs", [])
+    ]
+    latest_run = max(latest_runs, key=lambda run: run.get("concluded_at") or run.get("created_at") or "", default=None)
+    source_bar = ""
+    if latest_run:
+        request_id = latest_run.get("request_id") or latest_run.get("build_id", "")
+        request_label = f"Request {str(request_id)[-8:]}" if request_id else "Testing Farm run"
+        request_link = source_link(request_label, latest_run.get("run_url", ""))
+        summary = latest_run.get("summary", "")
+        source_bar = (
+            '<div class="source-bar"><span class="source-label">Testing Farm</span>'
+            f'{request_link}<span class="source-sep">·</span>'
+            f'<span class="source-hint">{_html.escape(str(summary))}</span></div>'
+        )
+
     return f"""
   <section class="version-section" id="{vid}">
     <div class="version-header">
@@ -701,12 +790,7 @@ def render_section(version, data, generated_at):
       </div>
     </div>
 
-    <div class="prow-bar">
-      <span class="prow-label">Prow CI</span>
-      {prow_link("pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest", PROW_HISTORY_BASE)}
-      <span class="prow-sep">·</span>
-      <span class="prow-hint">job history &amp; logs</span>
-    </div>
+    {source_bar}
 
     {overall_prog}
     {platform_blocks}
@@ -807,18 +891,18 @@ PAGE_TEMPLATE = """\
       font-size: 12px; color: var(--gray2);
     }}
 
-    /* ── Prow bar ── */
-    .prow-bar {{
+    /* ── Testing Farm source bar ── */
+    .source-bar {{
       display: flex; align-items: center; gap: 10px;
       background: #F0F4FF; border: 1px solid #C7D7FD;
       border-radius: 8px; padding: 9px 14px; margin-bottom: 14px;
       font-size: 12.5px; flex-wrap: wrap;
     }}
-    .prow-label {{ font-weight: 700; color: #1D4ED8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }}
-    .prow-link {{ color: #1D4ED8; font-weight: 600; text-decoration: none; }}
-    .prow-link:hover {{ text-decoration: underline; }}
-    .prow-sep {{ color: var(--gray3); }}
-    .prow-hint {{ color: var(--gray2); font-size: 11.5px; }}
+    .source-label {{ font-weight: 700; color: #1D4ED8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }}
+    .source-link {{ color: #1D4ED8; font-weight: 600; text-decoration: none; }}
+    .source-link:hover {{ text-decoration: underline; }}
+    .source-sep {{ color: var(--gray3); }}
+    .source-hint {{ color: var(--gray2); font-size: 11.5px; }}
 
     /* ── Progress ── */
     .prog-row {{
@@ -939,6 +1023,8 @@ PAGE_TEMPLATE = """\
       font-family: 'Red Hat Mono', monospace; text-decoration: none;
     }}
     .run-col-build:hover {{ color: rgba(255,255,255,.7); }}
+    .run-col-summary {{ display: block; max-width: 125px; white-space: normal; font-size: 9px; color: rgba(255,255,255,.65); font-weight: 400; }}
+    .run-pending {{ color: var(--gray3); }}
     .run-success {{ color: var(--c-verified); }}
     .run-failure {{ color: var(--c-failed); }}
     .runs-footer {{

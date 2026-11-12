@@ -14,6 +14,24 @@ Pytest-based hardware test suite for NVIDIA Jetson devices on RHEL, with deploym
 pip install -r requirements.txt
 ```
 
+## Testing Farm Dashboard and Workflow
+
+The GitHub Actions workflow **Testing Farm Jetson E2E** submits the existing
+`/testing-farm/beaker-e2e` plan from the private GitLab repository. It runs only
+when manually dispatched because it reserves and reprovisions a real Beaker
+Jetson. The dashboard refreshes from completed Testing Farm request artifacts,
+parses pytest logs/JUnit results, and publishes `docs/jetson_test_matrix.html`.
+
+Configure these GitHub repository secrets before dispatching the test workflow:
+`TESTING_FARM_API_TOKEN`, `BEAKER_USERNAME`, `BEAKER_PASSWORD`,
+`JETSON_SSH_KEY`, `GITLAB_USERNAME`, and `GITLAB_TOKEN`. Add `REGISTRY_USER` and
+`REGISTRY_PASS` if the selected image needs registry authentication. The
+`TESTING_FARM_CA_BUNDLE` secret is optional and can contain the Red Hat CA PEM
+bundle used to validate artifact storage TLS. Artifact downloads also need a
+runner with access to `artifacts.osci.redhat.com` (usually on the Red Hat VPN).
+Set the repository variable `TESTING_FARM_DASHBOARD_RUNNER` to that runner's
+label; it defaults to `ubuntu-latest`.
+
 ## Configuration
 
 Tests are configured via environment variables:
@@ -78,8 +96,9 @@ qe-rhel-jetson/
 │   └── wrapper.py              # Flash existing image & test via Jumpstarter framework
 │   └── container_images.yaml   # container images to pre-pull before pytest execution           
 │
-└── .github/workflows/          # CI/CD - IN PROGRESS (Blocked by Firewall issues)
-    └── beaker-test.yml         # Reserve Beaker machine, deploy, run tests
+└── .github/workflows/          # Manual Testing Farm submit + dashboard refresh
+    ├── beaker-test.yml         # Submit the Beaker E2E plan to Testing Farm
+    └── generate-matrix.yml     # Parse Testing Farm artifacts and deploy Pages
 ```
 
 ## Running Tests

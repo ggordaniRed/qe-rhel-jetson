@@ -1,326 +1,486 @@
 #!/usr/bin/env python3
-"""
-Fetch the latest JUnit results from Prow/GCS for the qe-rhel-jetson pytest job
-and merge them into matrix_data/ci_results.json.
+"""Fetch Testing Farm request artifacts and convert pytest output to dashboard data.
 
-Usage:
-    python scripts/fetch_ci_data.py [--job JOB_NAME] [--runs N] [--output PATH]
-
-The GCS bucket test-platform-results is public — no credentials needed.
+The dashboard reads the JSON written here. TESTING_FARM_API_TOKEN is used only
+for the Testing Farm API; it is never sent to the artifacts host.
 """
 
 import argparse
 import json
+import os
+import re
 import sys
-import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from xml.etree import ElementTree
 
-PROW_JOB = "pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest"
-GCS_BASE  = "https://storage.googleapis.com/test-platform-results"
-GCS_API   = "https://storage.googleapis.com/storage/v1/b/test-platform-results/o"
-REPO_SLUG = "rh-ecosystem-edge_qe-rhel-jetson"
-
-# Artifact path — matches ci-operator step "as: pytest" + ref "qe-rhel-jetson-pytest"
-JUNIT_PATH    = "artifacts/pytest/qe-rhel-jetson-pytest/artifacts/junit.xml"
-BUILD_LOG_PATH = "artifacts/pytest/qe-rhel-jetson-pytest/build-log.txt"
-
+API_URL = os.environ.get("TESTING_FARM_API_URL", "https://api.dev.testing-farm.io/v0.1").rstrip("/")
+ARTIFACTS_BASE = "https://artifacts.osci.redhat.com/testing-farm"
 CLASS_TO_TEST = {
-    "TestBootcSwitch":              "Bootc switch",
-    "TestCUDA":                     "CUDA",
-    "TestDLA":                      "DLA",
-    "TestPVA":                      "PVA (VPI)",
-    "TestVIC":                      "VIC",
-    "TestMultimedia":               "Multimedia",
-    "TestUSBs":                     "USBs",
-    "TestPCIs":                     "PCIs",
-    "TestCANBus":                   "CAN bus",
-    "TestCSICamera":                "CSI camera",
-    "TestI2C":                      "SPI/I2C",
-    "TestSPI":                      "SPI/I2C",
-    "TestDisplay":                  "Display",
-    "TestEthernet":                 "Ethernet",
-    "TestTools":                    "Nvidia CLI tools",
-    "TestKmod":                     "Kernel Modules",
-    "TestKernelModuleSignatures":   "Kernel Modules",
-    "TestRCBuildPackages":          "RC/Stage build",
-    "TestRTCDevice":                "RTC",
-    "TestRTCSysfs":                 "RTC",
-    "TestRTCTick":                  "RTC",
-    "TestRTCAlarm":                 "RTC",
-    "TestHWClock":                  "RTC",
-    "TestRTCEnumeration":           "RTC",
-    "TestTimedatectl":              "RTC",
-    "TestSC7Support":               "SC7 Suspend",
-    "TestSC7Suspend":               "SC7 Suspend",
-    "TestSC7Recovery":              "SC7 Suspend",
-    "TestISPDevice":                "ISP",
-    "TestISPDriver":                "ISP",
-    "TestISPSysfs":                 "ISP",
-    "TestISPDeviceTree":            "ISP",
-    "TestISPCapability":            "ISP",
+    "TestBootcSwitch": "Bootc switch",
+    "TestCUDA": "CUDA",
+    "TestDLA": "DLA",
+    "TestPVA": "PVA (VPI)",
+    "TestVIC": "VIC",
+    "TestMultimedia": "Multimedia",
+    "TestDeepStream": "DeepStream",
+    "TestUSBs": "USBs",
+    "TestPCIs": "PCIs",
+    "TestCANBus": "CAN bus",
+    "TestCSICamera": "CSI camera",
+    "TestI2C": "SPI/I2C",
+    "TestSPI": "SPI/I2C",
+    "TestDisplay": "Display",
+    "TestEthernet": "Ethernet",
+    "TestTools": "Nvidia CLI tools",
+    "TestKmod": "Kernel Modules",
+    "TestKernelModuleSignatures": "Kernel Modules",
+    "TestRCBuildPackages": "RC/Stage build",
+    "TestRTCDevice": "RTC",
+    "TestRTCSysfs": "RTC",
+    "TestRTCTick": "RTC",
+    "TestRTCAlarm": "RTC",
+    "TestHWClock": "RTC",
+    "TestRTCEnumeration": "RTC",
+    "TestTimedatectl": "RTC",
+    "TestSC7Support": "SC7 Suspend",
+    "TestSC7Suspend": "SC7 Suspend",
+    "TestSC7Recovery": "SC7 Suspend",
+    "TestISPDevice": "ISP",
+    "TestISPDriver": "ISP",
+    "TestISPSysfs": "ISP",
+    "TestISPDeviceTree": "ISP",
+    "TestISPCapability": "ISP",
+}
+PLATFORM_FROM_HOST = {
+    "agx-orin": "AGX Orin",
+    "igx-orin": "IGX Orin",
+    "orin-nx": "Orin NX",
+    "orin-nano": "Orin Nano",
+    "agx-thor": "AGX Thor",
+}
+SYSTEM_INFO_PATTERNS = {
+    "hardware_model": r"Hardware model name:\s*(.+)",
+    "rhel_version": r"RHEL version:\s*(\S+)",
+    "kernel_version": r"Kernel version:\s*(\S+)",
+    "l4t_version": r"L4T version:\s*(\S+)",
+    "jetpack_version": r"JetPack version \(RPM\):\s*(\S+)",
+    "jetpack_kmod": r"JetPack kmod \(RPM\):\s*(\S+)",
+    "firmware": r"Firmware type/version:\s*(.+?)\s*$",
+    "secure_boot": r"Secure boot state:\s*(\S+)",
 }
 
-PLATFORM_FROM_HOSTNAME = {
-    "nvidia-jetson-agx-orin-03.khw.eng.bos2.dc.redhat.com": "AGX Orin",
-    "nvidia-jetson-agx-orin-05.khw.eng.bos2.dc.redhat.com": "AGX Orin",
-    "nvidia-jetson-orin-nx-01.khw.eng.bos2.dc.redhat.com":  "Orin NX",
-    "nvidia-jetson-orin-nano-01.khw.eng.bos2.dc.redhat.com":"Orin Nano",
-    "nvidia-jetson-igx-orin-01.khw.eng.bos2.dc.redhat.com": "IGX Orin",
-    "nvidia-jetson-agx-thor-01.khw.eng.bos2.dc.redhat.com": "AGX Thor",
-}
 
-# Hardware model name (from build-log.txt) → short platform name
-PLATFORM_FROM_MODEL = {
-    "NVIDIA Jetson AGX Orin Developer Kit": "AGX Orin",
-    "NVIDIA IGX Orin Developer Kit":        "IGX Orin",
-    "NVIDIA Jetson Orin NX":                "Orin NX",
-    "NVIDIA Jetson Orin Nano":              "Orin Nano",
-    "NVIDIA Jetson AGX Thor":               "AGX Thor",
-}
+def make_ssl_context(ca_bundle=None):
+    import ssl
+    context = ssl.create_default_context()
+    if ca_bundle:
+        context.load_verify_locations(cafile=ca_bundle)
+    return context
 
 
-def fetch_text(url):
-    with urllib.request.urlopen(url, timeout=30) as r:
-        return r.read().decode()
+def fetch_json(url, token, context):
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(request, timeout=45, context=context) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
-def fetch_bytes(url):
-    with urllib.request.urlopen(url, timeout=60) as r:
-        return r.read()
+def fetch_artifact(url, context):
+    request = urllib.request.Request(url, headers={"Accept": "text/plain, application/xml, */*"})
+    with urllib.request.urlopen(request, timeout=60, context=context) as response:
+        return response.read()
 
 
-def fetch_json(url):
-    return json.loads(fetch_text(url))
+def token_id_from_whoami(data):
+    token = data.get("token", {}) if isinstance(data, dict) else {}
+    return token.get("id") or data.get("token_id")
 
 
-def gcs_list_prefixes(prefix):
-    url = f"{GCS_API}?prefix={prefix}&delimiter=/&maxResults=100"
-    data = fetch_json(url)
-    return [p.rstrip("/").split("/")[-1] for p in data.get("prefixes", [])]
+def unwrap_request_list(data):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("requests", "items", "data", "results"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+    raise ValueError("Testing Farm request list response did not contain a request array")
 
 
-def pr_base(pr, job, build_id):
-    return f"{GCS_BASE}/pr-logs/pull/{REPO_SLUG}/{pr}/{job}/{build_id}"
+def request_id(request):
+    return request.get("id") or request.get("request_id") or request.get("uuid")
 
 
-def fetch_finished(pr, job, build_id):
+def normalize_timestamp(value):
+    if value is None or value == "":
+        return ""
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    text = str(value).strip()
+    if text.isdigit():
+        return datetime.fromtimestamp(int(text), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        return fetch_json(f"{pr_base(pr, job, build_id)}/finished.json")
-    except urllib.error.HTTPError:
-        return None
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return text
 
 
-def fetch_junit(pr, job, build_id):
-    url = f"{pr_base(pr, job, build_id)}/{JUNIT_PATH}"
-    try:
-        return fetch_bytes(url)
-    except urllib.error.HTTPError:
-        return None
+def api_request_url(request_id_value):
+    return f"{API_URL}/requests/{urllib.parse.quote(str(request_id_value), safe='')}"
 
 
-def fetch_system_info(pr, job, build_id):
-    """Parse hardware/version info from build-log.txt."""
-    import re
-    url = f"{pr_base(pr, job, build_id)}/{BUILD_LOG_PATH}"
-    try:
-        log = fetch_text(url)
-    except urllib.error.HTTPError:
-        return {}
-
-    info = {}
-    patterns = {
-        "hardware_model": r"Hardware model name:\s+(.+)",
-        "rhel_version":   r"\d+\.\s*RHEL version:\s+(\S+)",
-        "kernel_version": r"\d+\.\s*Kernel version:\s+(\S+)",
-        "l4t_version":    r"\d+\.\s*L4T version:\s+(\S+)",
-        "jetpack_version":r"\d+\.\s*JetPack version \(RPM\):\s+(\S+)",
-        "jetpack_kmod":   r"\d+\.\s*JetPack kmod \(RPM\):\s+(\S+)",
-        "firmware":       r"\d+\.\s*Firmware type/version:\s+(.+?)(?:\s*$)",
-        "secure_boot":    r"\d+\.\s*Secure boot state:\s+(\S+)",
-    }
-    for key, pattern in patterns.items():
-        m = re.search(pattern, log, re.MULTILINE)
-        if m:
-            info[key] = m.group(1).strip()
-    return info
+def artifact_paths(detail, request_id_value):
+    run = detail.get("run", {}) or {}
+    base = (run.get("artifacts") or f"{ARTIFACTS_BASE}/{request_id_value}").rstrip("/")
+    stages = (run.get("stages", {}) or {}).get("pipeline", []) or []
+    provision = next(
+        (stage for stage in stages if stage.get("stage") == "provisioning" and stage.get("workdir")),
+        {},
+    )
+    workdir = str(provision.get("workdir") or "").strip("/")
+    plan = str(provision.get("plan") or "").strip("/")
+    paths = []
+    if workdir and plan:
+        parent, _, plan_name = plan.rpartition("/")
+        test_workdir = f"{parent}/{plan_name}-1" if parent else f"{plan_name}-1"
+        test_dir = "/".join(part for part in (workdir, plan, "execute/data/guest/default-0", test_workdir) if part)
+        paths.extend((f"{base}/{test_dir}/output.txt", f"{base}/{test_dir}/junit.xml"))
+    paths.append(f"{base}/results.xml")
+    return base, paths
 
 
-def fetch_platform(pr, job, build_id):
-    """Extract JETSON_HOSTNAME from prowjob.json and map to platform name."""
-    import re
-    try:
-        data = fetch_json(f"{pr_base(pr, job, build_id)}/prowjob.json")
-        envs = (data.get("spec", {})
-                    .get("pod_spec", {})
-                    .get("containers", [{}])[0]
-                    .get("env", []))
-        env_map = {e["name"]: e.get("value", "") for e in envs}
-        hostname = env_map.get("JETSON_HOSTNAME", "")
-        if hostname in PLATFORM_FROM_HOSTNAME:
-            return PLATFORM_FROM_HOSTNAME[hostname]
-        m = re.search(r"jetson-(agx-orin|igx-orin|orin-nx|orin-nano|agx-thor)", hostname, re.I)
-        if m:
-            return m.group(1).replace("-", " ").title()
-    except Exception:
-        pass
-    return "AGX Orin"
+def clean_output_line(line):
+    # The Beaker task output is timestamped and prefixed with stdout: in TF artifacts.
+    return re.sub(r"^\s*\d{2}:\d{2}:\d{2}\s+stdout:\s*", "", line.rstrip("\r\n"))
 
 
-def list_recent_builds(job, pr_limit=5, build_limit=3):
-    """Yield (pr, build_id) for recent builds, newest PRs first."""
-    try:
-        prs = gcs_list_prefixes(f"pr-logs/pull/{REPO_SLUG}/")
-    except Exception:
-        return
-    for pr in sorted(prs, key=lambda x: int(x) if x.isdigit() else 0, reverse=True)[:pr_limit]:
-        try:
-            builds = gcs_list_prefixes(f"pr-logs/pull/{REPO_SLUG}/{pr}/{job}/")
-        except Exception:
+def class_and_category(nodeid):
+    pieces = nodeid.split("::")
+    klass = next((part for part in reversed(pieces[:-1]) if part.startswith("Test")), "")
+    return klass, CLASS_TO_TEST.get(klass)
+
+
+def parse_pytest_log(log_text):
+    """Parse verbose pytest lines, short-summary rows, failure sections and counts."""
+    lines = [clean_output_line(line) for line in log_text.splitlines()]
+    per_test = {}
+    failure_summary = {}
+    counts = {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
+    current_failure = None
+    failure_sections = {}
+
+    for line in lines:
+        match = re.match(r"^(\S+::\S+)\s+(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b", line)
+        if match:
+            nodeid, status = match.groups()
+            per_test[nodeid] = status.lower()
             continue
-        for build_id in sorted(builds, reverse=True)[:build_limit]:
-            yield pr, build_id
-
-
-def _extract_message(tc):
-    """Return failure/error text from a testcase element (up to 3000 chars)."""
-    for tag in ("failure", "error"):
-        el = tc.find(tag)
-        if el is None:
+        match = re.match(r"^(FAILED|ERROR|PASSED|SKIPPED|XFAIL|XPASS)\s+(\S+::\S+)(?:\s+-\s+(.*))?$", line)
+        if match:
+            status, nodeid, reason = match.groups()
+            per_test[nodeid] = status.lower()
+            if reason:
+                failure_summary[nodeid] = reason.strip()
             continue
-        # Prefer the full text body (contains traceback); fall back to message attr
-        full = (el.text or "").strip()
-        if not full:
-            full = (el.get("message") or "").strip()
-        if full:
-            return full[:3000]
-    return ""
+        if "short test summary info" in line.lower():
+            current_failure = None
+            continue
+        heading = re.match(r"^_{3,}\s*(.+?)\s*_{3,}$", line)
+        if heading:
+            current_failure = heading.group(1).strip()
+            failure_sections.setdefault(current_failure, [])
+            continue
+        if current_failure:
+            if line.strip() and re.match(r"^={5,}", line.strip()):
+                current_failure = None
+            else:
+                failure_sections[current_failure].append(line)
+        for value, kind in re.findall(r"(\d+)\s+(failed|passed|skipped|error|errors)\b", line.lower()):
+            bucket = "errors" if kind.startswith("error") else kind
+            counts[bucket] = max(counts.get(bucket, 0), int(value))
+
+    # Pytest -v normally prints all cases; the short summary also guarantees failures are found.
+    results_by_category = {}
+    test_failures = {}
+    failure_lines = {}
+    for nodeid, status in per_test.items():
+        _, category = class_and_category(nodeid)
+        if not category:
+            continue
+        if status in ("failed", "error"):
+            outcome = "failed"
+        elif status in ("passed", "xpass"):
+            outcome = "verified"
+        else:
+            outcome = "na"
+        previous = results_by_category.get(category, "na")
+        if outcome == "failed" or (outcome == "verified" and previous == "na"):
+            results_by_category[category] = outcome
+        if outcome != "failed":
+            continue
+        klass, _ = class_and_category(nodeid)
+        method = nodeid.split("::")[-1]
+        detail_key = f"{klass}.{method}" if klass else method
+        detail = next((body for title, body in failure_sections.items() if detail_key in title), [])
+        message = "\n".join(detail).strip() or failure_summary.get(nodeid, "Failed; see the Testing Farm test output.")
+        message = message[-5000:]
+        test_failures[nodeid] = {"category": category, "message": message}
+        failure_lines.setdefault(category, []).append(f"{nodeid}\n{message}")
+
+    failures = {category: "\n\n".join(items)[:8000] for category, items in failure_lines.items()}
+    return results_by_category, failures, test_failures, counts
 
 
 def parse_junit(xml_bytes):
-    root = ElementTree.fromstring(xml_bytes)
-    aggregated = {}   # test_name → set of outcomes
-    messages   = {}   # test_name → first failure message seen
-
-    for tc in root.iter("testcase"):
-        classname = tc.get("classname", "")
-        klass = classname.rsplit(".", 1)[-1]
-        test_name = CLASS_TO_TEST.get(klass)
-        if not test_name:
-            continue
-        if tc.find("failure") is not None or tc.find("error") is not None:
-            outcome = "failed"
-            if test_name not in messages:
-                msg = _extract_message(tc)
-                if msg:
-                    messages[test_name] = msg
-        elif tc.find("skipped") is not None:
-            outcome = "skipped"
-        else:
-            outcome = "verified"
-        aggregated.setdefault(test_name, set()).add(outcome)
-
-    results  = {}
+    """Parse pytest JUnit XML when it is available in the Testing Farm artifacts."""
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return {}, {}, {}, {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
+    per_category = {}
     failures = {}
-    for test_name, outcomes in aggregated.items():
-        if "failed" in outcomes:
-            results[test_name] = "failed"
-            if test_name in messages:
-                failures[test_name] = messages[test_name]
-        elif "verified" in outcomes:
-            results[test_name] = "verified"
+    test_failures = {}
+    counts = {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
+    for case in root.iter("testcase"):
+        classname = case.get("classname", "")
+        klass = classname.rsplit(".", 1)[-1]
+        category = CLASS_TO_TEST.get(klass)
+        if not category:
+            continue
+        name = case.get("name", "unknown")
+        nodeid = f"{classname}::{name}"
+        failure = case.find("failure")
+        if failure is None:
+            failure = case.find("error")
+        skipped = case.find("skipped")
+        if failure is not None:
+            status = "failed"
+            counts["failed"] += 1
+            message = (failure.text or failure.get("message") or "Failed")[-5000:]
+            test_failures[nodeid] = {"category": category, "message": message}
+            failures.setdefault(category, []).append(f"{nodeid}\n{message}")
+        elif skipped is not None:
+            status = "na"
+            counts["skipped"] += 1
         else:
-            results[test_name] = "na"
-    return results, failures
+            status = "verified"
+            counts["passed"] += 1
+        previous = per_category.get(category, "na")
+        if status == "failed" or (status == "verified" and previous == "na"):
+            per_category[category] = status
+    return per_category, {key: "\n\n".join(val)[:8000] for key, val in failures.items()}, test_failures, counts
 
 
-def prow_url(pr, job, build_id):
-    return (f"https://prow.ci.openshift.org/view/gs/test-platform-results"
-            f"/pr-logs/pull/{REPO_SLUG}/{pr}/{job}/{build_id}")
+def merge_results(primary, secondary):
+    results = dict(secondary[0])
+    for category, status in primary[0].items():
+        if status == "failed" or category not in results or results[category] == "na":
+            results[category] = status
+    failures = dict(secondary[1])
+    failures.update(primary[1])
+    test_failures = dict(secondary[2])
+    test_failures.update(primary[2])
+    counts = {key: max(primary[3].get(key, 0), secondary[3].get(key, 0)) for key in set(primary[3]) | set(secondary[3])}
+    return results, failures, test_failures, counts
+
+
+def parse_system_info(log_text):
+    info = {}
+    for key, pattern in SYSTEM_INFO_PATTERNS.items():
+        match = re.search(pattern, log_text, re.MULTILINE | re.IGNORECASE)
+        if match:
+            info[key] = match.group(1).strip()
+    return info
+
+
+def platform_from_request(detail, log_text, system_info):
+    text = " ".join((log_text, json.dumps(detail, sort_keys=True))).lower()
+    for needle, platform in PLATFORM_FROM_HOST.items():
+        if needle in text:
+            return platform
+    model = system_info.get("hardware_model", "").lower()
+    for needle, platform in PLATFORM_FROM_HOST.items():
+        if needle in model:
+            return platform
+    return "AGX Orin"
+
+
+def environment_data(detail):
+    environments = detail.get("environments", []) or []
+    if isinstance(environments, dict):
+        environments = [environments]
+    return environments[0] if environments else {}
+
+
+def request_variables(detail):
+    environment = environment_data(detail)
+    return environment.get("variables", {}) or {}
+
+
+def infer_rhel_version(detail, system_info):
+    if system_info.get("rhel_version"):
+        match = re.search(r"\d+\.\d+", system_info["rhel_version"])
+        if match:
+            return match.group(0)
+    variables = request_variables(detail)
+    image = variables.get("BOOTC_IMAGE") or " ".join((variables.get("BOOTC_IMAGE_BASEURL", ""), variables.get("BOOTC_IMAGE_TAG", "")))
+    match = re.search(r"rhel-(\d{2,3})-bootc", image, re.IGNORECASE)
+    if match:
+        digits = match.group(1)
+        return f"{digits[:-1]}.{digits[-1]}" if len(digits) == 3 else f"{digits[0]}.{digits[1]}"
+    return "9.8"
+
+
+def log_urls(detail, request_id_value):
+    return artifact_paths(detail, request_id_value)
+
+
+def fetch_run(request_id_value, token, context):
+    detail = fetch_json(api_request_url(request_id_value), token, context)
+    state = str(detail.get("state", "unknown")).lower()
+    if state not in ("complete", "error", "failed"):
+        return None
+    result_info = detail.get("result", {}) or {}
+    overall = str(result_info.get("overall", "unknown")).lower()
+    artifacts, candidates = log_urls(detail, request_id_value)
+    log_text = ""
+    junit_bytes = None
+    for url in candidates:
+        try:
+            payload = fetch_artifact(url, context)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as error:
+            print(f"  Artifact unavailable ({url.rsplit('/', 1)[-1]}): {error}", file=sys.stderr)
+            continue
+        if url.endswith("output.txt"):
+            log_text = payload.decode("utf-8", errors="replace")
+        elif url.endswith("junit.xml") or url.endswith("results.xml"):
+            if junit_bytes is None or url.endswith("junit.xml"):
+                junit_bytes = payload
+            if url.endswith("results.xml") and not log_text:
+                log_text = ""
+    from_log = parse_pytest_log(log_text) if log_text else ({}, {}, {}, {"passed": 0, "failed": 0, "skipped": 0, "errors": 0})
+    from_xml = parse_junit(junit_bytes) if junit_bytes else ({}, {}, {}, {"passed": 0, "failed": 0, "skipped": 0, "errors": 0})
+    parsed = merge_results(from_log, from_xml)
+    results, failures, test_failures, counts = parsed
+    if not results:
+        return None
+
+    system_info = parse_system_info(log_text)
+    variables = request_variables(detail)
+    firmware = variables.get("JETSON_FIRMWARE")
+    image = variables.get("BOOTC_IMAGE")
+    if not image and variables.get("BOOTC_IMAGE_BASEURL") and variables.get("BOOTC_IMAGE_TAG"):
+        image = f"{variables['BOOTC_IMAGE_BASEURL']}:{variables['BOOTC_IMAGE_TAG']}"
+    if firmware:
+        system_info.setdefault("firmware", str(firmware))
+    if image:
+        system_info["bootc_image"] = image
+    hostname_match = re.search(r"nvidia-jetson-[\w-]+\.khw\.eng\.bos2\.dc\.redhat\.com", log_text, re.IGNORECASE)
+    if hostname_match:
+        system_info["beaker_host"] = hostname_match.group(0)
+    platform = platform_from_request(detail, log_text, system_info)
+    if system_info.get("beaker_host"):
+        platform = platform_from_request(detail, system_info["beaker_host"], system_info)
+    created = normalize_timestamp(detail.get("created_at") or detail.get("created"))
+    concluded = normalize_timestamp(detail.get("updated_at") or detail.get("updated") or detail.get("completed_at") or detail.get("finished_at"))
+    if overall in ("passed", "success", "successful"):
+        conclusion = "success"
+    elif overall in ("failed", "failure", "error") or state in ("error", "failed"):
+        conclusion = "failure"
+    else:
+        conclusion = "failure" if any(value == "failed" for value in results.values()) else "success"
+    summary = result_info.get("summary") or ""
+    if not summary:
+        summary = ", ".join(f"{counts.get(key, 0)} {key}" for key in ("failed", "passed", "skipped") if counts.get(key, 0))
+    api_url = api_request_url(request_id_value)
+    return {
+        "source": "testing-farm",
+        "request_id": request_id_value,
+        "build_id": request_id_value,
+        "request_url": api_url,
+        "run_url": artifacts,
+        "platform": platform,
+        "rhel_version": infer_rhel_version(detail, system_info),
+        "created_at": created,
+        "concluded_at": concluded,
+        "state": state,
+        "conclusion": conclusion,
+        "summary": str(summary),
+        "counts": counts,
+        "results": results,
+        "failures": failures,
+        "test_failures": test_failures,
+        "system_info": system_info,
+    }
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--job",       default=PROW_JOB)
-    ap.add_argument("--pr-limit",  type=int, default=10, help="PRs to scan (newest first)")
-    ap.add_argument("--run-limit", type=int, default=10, help="Builds per PR to scan")
-    ap.add_argument("--output",    default="matrix_data/ci_results.json")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Fetch Testing Farm logs and update dashboard data")
+    parser.add_argument("--output", default="matrix_data/ci_results.json")
+    parser.add_argument("--request-id", action="append", default=[], help="Fetch a specific Testing Farm request; may be repeated")
+    parser.add_argument("--age-days", type=int, default=90, help="Look back this many days for requests made with the configured API token")
+    parser.add_argument("--max-runs", type=int, default=40)
+    parser.add_argument("--ca-bundle", help="Additional CA bundle for Testing Farm artifact storage")
+    args = parser.parse_args()
+
+    token = os.environ.get("TESTING_FARM_API_TOKEN", "")
+    if not token:
+        parser.error("set TESTING_FARM_API_TOKEN to a Testing Farm API token")
+    context = make_ssl_context(args.ca_bundle)
+    whoami = fetch_json(f"{API_URL}/whoami", token, context)
+    token_id = token_id_from_whoami(whoami)
+    if not token_id:
+        raise SystemExit("Testing Farm /whoami response did not include token.id")
+
+    created_after = (datetime.now(timezone.utc) - timedelta(days=max(args.age_days, 1))).date().isoformat()
+    query = urllib.parse.urlencode({"token_id": token_id, "created_after": created_after})
+    listed = unwrap_request_list(fetch_json(f"{API_URL}/requests?{query}", token, context))
+    ids = list(dict.fromkeys(args.request_id + [request_id(item) for item in listed if request_id(item)]))[: args.max_runs]
+    print(f"Scanning {len(ids)} Testing Farm request(s) since {created_after} ...")
 
     output_path = Path(args.output)
     existing = json.loads(output_path.read_text()) if output_path.exists() else {"runs": []}
-    seen_ids = {r["build_id"] for r in existing.get("runs", [])}
-
-    print(f"Scanning recent PRs for {args.job} ...")
-    new_entries = []
-
-    for pr, build_id in list_recent_builds(args.job, args.pr_limit, args.run_limit):
-        if build_id in seen_ids:
+    # This dashboard is Testing Farm-backed; keep only runs with Testing Farm request IDs.
+    current_runs = [run for run in existing.get("runs", []) if run.get("source") == "testing-farm" or run.get("request_id")]
+    by_id = {str(run.get("request_id") or run.get("build_id")): run for run in current_runs}
+    fetched = 0
+    for request_id_value in ids:
+        try:
+            entry = fetch_run(str(request_id_value), token, context)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as error:
+            print(f"  Request {request_id_value}: API/artifact fetch failed: {error}", file=sys.stderr)
             continue
-
-        print(f"  PR#{pr} build {build_id} — checking ...")
-        finished = fetch_finished(pr, args.job, build_id)
-        if finished is None:
-            print("    finished.json not found, skipping.")
+        if entry is None:
+            print(f"  Request {request_id_value}: no pytest category results available yet; skipping")
             continue
-        result = finished.get("result")
-        if result == "ABORTED":
-            print("    Aborted, skipping.")
-            continue
-        if result not in ("SUCCESS", "FAILURE"):
-            print(f"    Still running ({result}), skipping.")
-            continue
+        by_id[str(request_id_value)] = entry
+        fetched += 1
+        print(f"  {request_id_value}: {entry['rhel_version']} / {entry['platform']} / {entry['conclusion']} ({entry['summary'] or entry['state']})")
 
-        xml_bytes = fetch_junit(pr, args.job, build_id)
-        if xml_bytes is None:
-            print("    No junit.xml (pre-dates this feature), skipping.")
-            continue
-
-        results, failures = parse_junit(xml_bytes)
-        if not results:
-            print("    JUnit parsed but no known tests found, skipping.")
-            continue
-
-        system_info = fetch_system_info(pr, args.job, build_id)
-        platform = (
-            PLATFORM_FROM_MODEL.get(system_info.get("hardware_model", ""))
-            or fetch_platform(pr, args.job, build_id)
-        )
-        rhel_version = system_info.get("rhel_version")
-
-        ts = finished.get("timestamp", "")
-        concluded_at = (
-            datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            if ts else ""
-        )
-        conclusion = "success" if finished.get("result") == "SUCCESS" else "failure"
-
-        entry = {
-            "build_id":     build_id,
-            "pr":           pr,
-            "run_url":      prow_url(pr, args.job, build_id),
-            "platform":     platform,
-            "rhel_version": rhel_version,
-            "concluded_at": concluded_at,
-            "conclusion":   conclusion,
-            "results":      results,
-            "failures":     failures,
-            "system_info":  system_info,
-        }
-        new_entries.append(entry)
-        print(f"    OK — platform={platform} RHEL={rhel_version} conclusion={conclusion}")
-
-    if not new_entries:
-        print("No new builds with junit results found.")
-        return
-
-    existing["runs"] = new_entries + existing.get("runs", [])
-    existing["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(existing, indent=2))
-    print(f"\nWrote {output_path} ({len(existing['runs'])} total runs)")
+    runs = sorted(
+        by_id.values(),
+        key=lambda run: run.get("concluded_at") or run.get("created_at") or "",
+        reverse=True,
+    )[: args.max_runs]
+    if fetched or not output_path.exists():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps({
+            "source": "testing-farm",
+            "runs": runs,
+            "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }, indent=2) + "\n")
+        print(f"Wrote {output_path} ({len(runs)} Testing Farm runs)")
+    else:
+        print(f"No new completed Testing Farm logs; keeping {len(runs)} existing run(s).")
 
 
 if __name__ == "__main__":

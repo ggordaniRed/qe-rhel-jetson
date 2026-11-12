@@ -91,18 +91,18 @@
       font-size: 12px; color: var(--gray2);
     }
 
-    /* ── Prow bar ── */
-    .prow-bar {
+    /* ── Testing Farm source bar ── */
+    .source-bar {
       display: flex; align-items: center; gap: 10px;
       background: #F0F4FF; border: 1px solid #C7D7FD;
       border-radius: 8px; padding: 9px 14px; margin-bottom: 14px;
       font-size: 12.5px; flex-wrap: wrap;
     }
-    .prow-label { font-weight: 700; color: #1D4ED8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
-    .prow-link { color: #1D4ED8; font-weight: 600; text-decoration: none; }
-    .prow-link:hover { text-decoration: underline; }
-    .prow-sep { color: var(--gray3); }
-    .prow-hint { color: var(--gray2); font-size: 11.5px; }
+    .source-label { font-weight: 700; color: #1D4ED8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+    .source-link { color: #1D4ED8; font-weight: 600; text-decoration: none; }
+    .source-link:hover { text-decoration: underline; }
+    .source-sep { color: var(--gray3); }
+    .source-hint { color: var(--gray2); font-size: 11.5px; }
 
     /* ── Progress ── */
     .prog-row {
@@ -223,6 +223,8 @@
       font-family: 'Red Hat Mono', monospace; text-decoration: none;
     }
     .run-col-build:hover { color: rgba(255,255,255,.7); }
+    .run-col-summary { display: block; max-width: 125px; white-space: normal; font-size: 9px; color: rgba(255,255,255,.65); font-weight: 400; }
+    .run-pending { color: var(--gray3); }
     .run-success { color: var(--c-verified); }
     .run-failure { color: var(--c-failed); }
     .runs-footer {
@@ -292,7 +294,7 @@
       Jetson QE Test Matrix
     </div>
     <div class="nav-tabs" id="nav-tabs">
-      <a href="#rhel-9-8" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-ga">GA</span>RHEL 9.8</a>
+      <a href="#rhel-10-2" class="nav-tab" onclick="activateTab(this)"><span class="phase-badge phase-dp">DP</span>RHEL 10.2</a>
 
     </div>
   </div>
@@ -311,84 +313,68 @@
   </div>
 
 
-  <section class="version-section" id="rhel-9-8">
+  <section class="version-section" id="rhel-10-2">
     <div class="version-header">
       <div class="version-title-row">
-        <span class="phase-badge phase-ga">GA</span>
-        <h2 class="version-h2">RHEL 9.8 <span class="phase-full">General Availability</span></h2>
+        <span class="phase-badge phase-dp">DP</span>
+        <h2 class="version-h2">RHEL 10.2 <span class="phase-full">Developer Preview</span></h2>
       </div>
       <div class="version-chips">
-        <span class="chip chip-hw">NVIDIA Jetson AGX Orin Developer Kit</span>
-          <span class="chip"><span class="chip-label">Kernel</span> 5.14.0-687.31.1.el9_8.aarch64</span>
-          <span class="chip"><span class="chip-label">L4T</span> 36.5.0</span>
-          <span class="chip"><span class="chip-label">JetPack</span> 6.2.2</span>
-          <span class="chip"><span class="chip-label">Firmware</span> UEFI 36.5.2</span>
-          <span class="chip"><span class="chip-label">Secure Boot</span> disabled</span>
+        <span class="chip"><span class="chip-label">Firmware</span> 39</span>
+          <span class="chip"><span class="chip-label">Beaker</span> nvidia-jetson-agx-orin-07.khw.eng.bos2.dc.redhat.com</span>
+          <span class="chip"><span class="chip-label">Bootc image</span> quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel-102-bootc:7.2.1_6.12.0-211.72.1_110226170017</span>
       </div>
     </div>
 
-    <div class="prow-bar">
-      <span class="prow-label">Prow CI</span>
-      <a class="prow-link" href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest</a>
-      <span class="prow-sep">·</span>
-      <span class="prow-hint">job history &amp; logs</span>
-    </div>
+    <div class="source-bar"><span class="source-label">Testing Farm</span><a class="source-link" href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener">Request 7ed2d2fb</a><span class="source-sep">·</span><span class="source-hint">9 failed, 131 passed, 24 skipped</span></div>
 
-    <div class="prog-row"><span class="prog-label">16 / 16 verified</span><div class="prog-bar"><div class="prog-fill" style="width:100%"></div></div><span class="prog-pct">100%</span></div>
+    <div class="prog-row"><span class="prog-label">131 passed · 9 failed · 24 skipped</span></div>
     
     <details class="platform-block" open>
       <summary class="platform-summary">
         <span class="plat-summary-name">AGX Orin</span>
-        <span class="plat-mini-prog ok">16/16</span>
-        
+        <span class="plat-mini-prog warn">131/164</span>
+        <span class="plat-failures"><span class="fail-chip">CUDA</span> <span class="fail-chip">DeepStream</span> <span class="fail-chip">Display</span> <span class="fail-chip">Nvidia CLI tools</span></span>
         <span class="plat-toggle"></span>
       </summary>
       <div class="platform-body">
-        <div class='platform-chips'><span class="chip chip-hw">NVIDIA Jetson AGX Orin Developer Kit</span>
-        <span class="chip"><span class="chip-label">Kernel</span> 5.14.0-687.31.1.el9_8.aarch64</span>
-        <span class="chip"><span class="chip-label">L4T</span> 36.5.0</span>
-        <span class="chip"><span class="chip-label">JetPack</span> 6.2.2</span>
-        <span class="chip"><span class="chip-label">Firmware</span> UEFI 36.5.2</span>
-        <span class="chip"><span class="chip-label">Secure Boot</span> disabled</span></div>
-        <div class="prog-row"><span class="prog-label">16 / 16 verified</span><div class="prog-bar"><div class="prog-fill" style="width:100%"></div></div><span class="prog-pct">100%</span></div>
+        <div class='platform-chips'><span class="chip"><span class="chip-label">Firmware</span> 39</span>
+        <span class="chip"><span class="chip-label">Beaker</span> nvidia-jetson-agx-orin-07.khw.eng.bos2.dc.redhat.com</span>
+        <span class="chip"><span class="chip-label">Bootc image</span> quay.io/redhat-user-workloads/jetpack-for-rhel-tenant/rhel-102-bootc:7.2.1_6.12.0-211.72.1_110226170017</span></div>
+        <div class="prog-row"><span class="prog-label">131 passed · 9 failed · 24 skipped</span></div>
         
     <div class="matrix-wrap">
       <table class="matrix">
-        <thead><tr>
-          <th class="test-col-th">Test</th>
-          <th class="run-col-th"><span class="run-success run-col-icon">✓</span><span class="run-col-date">2026-08-12</span><a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/44" target="_blank" class="prow-link run-col-pr">PR#44</a><a class="prow-link run-col-build" href="https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/44/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087515841993117696" target="_blank" rel="noopener">93117696</a></th><th class="run-col-th"><span class="run-success run-col-icon">✓</span><span class="run-col-date">2026-08-12</span><a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/42" target="_blank" class="prow-link run-col-pr">PR#42</a><a class="prow-link run-col-build" href="https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087474408540082176" target="_blank" rel="noopener">40082176</a></th><th class="run-col-th"><span class="run-failure run-col-icon">✗</span><span class="run-col-date">2026-08-12</span><a href="https://github.com/rh-ecosystem-edge/qe-rhel-jetson/pull/42" target="_blank" class="prow-link run-col-pr">PR#42</a><a class="prow-link run-col-build" href="https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087460667559776256" target="_blank" rel="noopener">59776256</a></th>
-        </tr></thead>
-        <tbody>
-          <tr class="group-row"><td class="group-label" colspan="4">Boot & Security</td></tr>
-<tr class="test-row "><td class="test-name">Bootc switch</td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td><td class="result-cell"><span class="dot dot-na" title="N/A"></span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="4">Accelerators</td></tr>
-<tr class="test-row "><td class="test-name">CUDA</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row test-row-failed"><td class="test-name">DLA</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><a href="https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/rh-ecosystem-edge_qe-rhel-jetson/42/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest/2087460667559776256" target="_blank" rel="noopener" class="fail-link"><span class="dot dot-failed" title="Failed">Fail</span></a></td></tr>
-<tr class="test-row "><td class="test-name">PVA (VPI)</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="4">Media</td></tr>
-<tr class="test-row "><td class="test-name">VIC</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">Multimedia</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="4">I/O</td></tr>
-<tr class="test-row "><td class="test-name">USBs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">PCIs</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">CAN bus</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">CSI camera</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">SPI/I2C</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="4">Display</td></tr>
-<tr class="test-row "><td class="test-name">Display</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="4">Network</td></tr>
-<tr class="test-row "><td class="test-name">Ethernet</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="group-row"><td class="group-label" colspan="4">System</td></tr>
-<tr class="test-row "><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">Kernel Modules</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">RC/Stage build</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
-<tr class="test-row "><td class="test-name">RTC</td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td><td class="result-cell"><span class="dot dot-verified" title="Verified">Pass</span></td></tr>
+        <thead><tr><th class="test-col-th">Test</th><th class="run-col-th" title="9 failed, 131 passed, 24 skipped"><span class="run-failure run-col-icon">✗</span><span class="run-col-date">2026-11-12</span><a class="source-link run-col-build" href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener">7ed2d2fb</a><span class="run-col-summary">9 failed, 131 passed, 24 skipped</span></th></tr></thead>
+        <tbody><tr class="group-row"><td class="group-label" colspan="2">Accelerators</td></tr>
+<tr class="test-row test-row-failed"><td class="test-name">CUDA</td><td class="result-cell"><a href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener" class="fail-link"><span class="dot dot-failed" title="Failed">Fail</span></a><details class="fail-details"><summary class="fail-summary">Failure details</summary><pre class="fail-log">tests_suites/cuda/test_basic_cuda.py::TestCUDA::test_l4t_cuda_samples
+Podman startup output included banner lines (`==========`, `== CUDA ==`, `CUDA Version 13.2.0`); the test treated these as sample paths and attempted to execute ./==========, ./==, and ./CUDA (exit 127).</pre></details></td></tr>
+<tr class="test-row test-row-failed"><td class="test-name">DeepStream</td><td class="result-cell"><a href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener" class="fail-link"><span class="dot dot-failed" title="Failed">Fail</span></a><details class="fail-details"><summary class="fail-summary">Failure details</summary><pre class="fail-log">tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_deepstream_version
+The log reports a missing libnvdla_compiler.so while probing the installed DeepStream version.
 
-        </tbody>
+tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_deepstream_gst_plugins
+libnvdsbufferpool.so.1.0.0 failed to load with undefined symbol g_once_init_enter_pointer, so DeepStream plugins did not register.
+
+tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_nvvideoconvert_pipeline
+The nvvideoconvert element was unavailable because the DeepStream plugin loader failed.
+
+tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_nvstreammux_pipeline
+The nvstreammux element was unavailable because the DeepStream plugin loader failed.
+
+tests_suites/deepstream/test_basic_deepstream.py::TestDeepStream::test_deepstream_sample_inference
+The sample inference pipeline could not load its required DeepStream and H.264 decoder plugins.</pre></details></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">Display</td></tr>
+<tr class="test-row test-row-failed"><td class="test-name">Display</td><td class="result-cell"><a href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener" class="fail-link"><span class="dot dot-failed" title="Failed">Fail</span></a><details class="fail-details"><summary class="fail-summary">Failure details</summary><pre class="fail-log">tests_suites/display/test_basic_display.py::TestDisplay::test_default_target
+The log shows graphical.target without GDM or Xorg.
+
+tests_suites/display/test_basic_display.py::TestDisplay::test_x11_display
+The X11 test failed because Xorg was not running.</pre></details></td></tr>
+<tr class="group-row"><td class="group-label" colspan="2">System</td></tr>
+<tr class="test-row test-row-failed"><td class="test-name">Nvidia CLI tools</td><td class="result-cell"><a href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener" class="fail-link"><span class="dot dot-failed" title="Failed">Fail</span></a><details class="fail-details"><summary class="fail-summary">Failure details</summary><pre class="fail-log">tests_suites/tools/test_basic_tools.py::TestTools::test_nvfancontrol_available
+nvfancontrol -q exited 253 and wrote no stderr output.</pre></details></td></tr>
+</tbody>
       </table>
-      <div class="runs-footer">
-        <a href="https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-rh-ecosystem-edge-qe-rhel-jetson-main-pytest" target="_blank" rel="noopener">View all runs on Prow &rarr;</a>
-      </div>
+      <div class="runs-footer"><a class="source-link" href="https://artifacts.osci.redhat.com/testing-farm/ecf201e3-c4f5-4480-b945-1d747ed2d2fb" target="_blank" rel="noopener">Open latest Testing Farm results →</a></div>
     </div>
       </div>
     </details>
@@ -396,7 +382,7 @@
 
 
   <div class="footer">
-    Generated 2026-08-19 15:11 UTC
+    Generated 2026-11-12 10:43 UTC
   </div>
 
 </div>
